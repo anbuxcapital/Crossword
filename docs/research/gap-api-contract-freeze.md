@@ -83,7 +83,7 @@ Additional smaller alignments applied without a separate row: `hintCosts` and `W
 
 ### F5. Letter normalisation and alphabets (CONTENT F3, measured locally there on Node 26.8.1)
 
-`normalizeWord(lang, s)` = NFC → strip `[\s'’ʼ\-.]` → `toLocaleUpperCase(lang)` → fold table (`ru: Ё→Е`; `uk`: none; `en`: none) → alphabet whitelist. **Never** NFD + strip marks (merges `й→и`, `ї→і`). The same function runs at import (canonical solution) and at check time (typed word), so the two cannot disagree. Alphabets: `en` A–Z (26); `uk` `АБВГҐДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЬЮЯ` (33, no Ё Ъ Ы Э); `ru` `АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ` (33) → after folding, the **checkable** `ru` alphabet is 32 letters (no Ё). Alphabet membership is a standard-reference fact (medium confidence; letters verified by code-point probing in CONTENT, sizes not fetched from a primary source).
+[UNVERIFIED] `normalizeWord(lang, s)` = NFC → strip `[\s’’ʼ\-.]` → `toLocaleUpperCase(lang)` → fold table (`ru: Ё→Е`; `uk`: none; `en`: none) → alphabet whitelist. **Never** NFD + strip marks (merges `й→и`, `ї→і`). The same function runs at import (canonical solution) and at check time (typed word), so the two cannot disagree. [UNVERIFIED] Alphabets: `en` A–Z (26); `uk` `АБВГҐДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЬЮЯ` (33, no Ё Ъ Ы Э); `ru` `АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ` (33) → after folding, the **checkable** `ru` alphabet is 32 letters (no Ё). Alphabet membership is a standard-reference fact (medium confidence; letters verified by code-point probing in CONTENT, sizes not fetched from a primary source).
 
 ### F6. What the screens actually need (HANDOFF §1–15 → endpoints)
 
@@ -234,7 +234,7 @@ Content strings (`title`, clue `text`, `author.name`, collection `name`/`blurb`,
 | `uk` | Й Ц У К Е Н Г Ш Щ З Х Ї | Ф І В А П Р О Л Д Ж Є | Я Ч С М И Т Ь Б Ю Ґ | 33 | includes Ґ Є І Ї; no Ё Ъ Ы Э; `normalizeWord("uk")` folds nothing (CONTENT F3) |
 | `ru` | Й Ц У К Е Н Г Ш Щ З Х Ъ | Ф Ы В А П Р О Л Д Ж Э | Я Ч С М И Т Ь Б Ю | 32 | Ё omitted because `normalizeWord("ru")` folds Ё→Е in both the stored solution and typed letters (CONTENT F3); the 33-letter variant would add Ё to row 1 |
 
-The row contents follow the standard ЙЦУКЕН layouts; their exact order is a UI convention, not a data requirement — mark **UNVERIFIED against a primary layout reference** (standard-keyboard fact, medium confidence). Row 1 at 12 keys needs narrower keys than the 26 px prototype key on a 390 px frame (open question Q4). The same alphabets are exported as `ConfigView.alphabets[lang]` so the client can filter pasted input.
+[UNVERIFIED] The row contents follow the standard ЙЦУКЕН layouts; their exact order is a UI convention, not a data requirement — marked **UNVERIFIED against a primary layout reference** (standard-keyboard fact, medium confidence). Row 1 at 12 keys needs narrower keys than the 26 px prototype key on a 390 px frame (open question Q4). The same alphabets are exported as `ConfigView.alphabets[lang]` so the client can filter pasted input.
 
 ### R6. Dependency graph (after reconciliation — a DAG)
 
@@ -702,26 +702,26 @@ const NO_SUBSCRIPTIONS = ["economy", "content", "player", "identity", "solving",
 
 ## Claims
 
-| id | claim | source | confidence |
-|---|---|---|---|
-| C1 | `@hono/zod-validator` supports targets `json`, `form`, `query`, `param`, `header`, `cookie`; validators stack; header keys must be lowercase; data is read with `c.req.valid(target)`. | https://hono.dev/docs/guides/validation | high |
-| C2 | The zValidator hook is `(result, c) => Response \| void`; returning a Response short-circuits; default parsing is `safeParseAsync`; `validationFunction` overrides it; `InferInput` comes from `hono/validator`. | https://github.com/honojs/middleware/tree/main/packages/zod-validator (README) | high |
-| C3 | `@hono/zod-validator@0.9.1` peers are `zod ^3.25.0 \|\| ^4.0.0` and `hono >=4.11.2`; npm latest on 2026-09-02: hono 4.13.5, zod 4.5.4, @hono/zod-validator 0.9.1. | `npm view @hono/zod-validator@0.9.1 peerDependencies`; `npm view hono version`; `npm view zod version` | high |
-| C4 | Hono RPC requires chained routes, explicit status literals in `c.json(data, 200)`, `strict: true` on both sides; `InferResponseType<T, 200>` selects by status; `hcWithType` pre-compilation is the documented performance pattern; `c.notFound()` is untyped; path/query values are strings. | https://hono.dev/docs/guides/rpc | high |
-| C5 | `z.object()` strips unknown keys, `z.strictObject()` rejects them, `z.looseObject()` passes them through; `z.discriminatedUnion("key", [...])` dispatches on a literal discriminator. | https://zod.dev/api | high |
-| C6 | `z.iso.datetime()` requires seconds by default and accepts only `Z` unless `{ offset: true }`/`{ local: true }`; `z.int()` is safe-integer; `z.coerce.number()` has `unknown` input; `z.stringbool()` parses true/false string sets case-insensitively; `.default()` short-circuits while `.prefault()` is parsed. | https://zod.dev/api | high |
-| C7 | `.brand<"X">()` changes only the inferred type (`T & z.$brand<"X">`), not runtime behaviour; direction `in\|out\|inout` since 4.2. | https://zod.dev/api | high |
-| C8 | `z.treeifyError` returns a nested tree; `z.flattenError` returns `{ formErrors, fieldErrors }` and is "best for single-level schemas"; `.format()`/`.flatten()`/`z.formatError` are deprecated. | https://zod.dev/error-formatting | high |
-| C9 | README-R's module table has `economy` subscribing to `collections.completed` while its own event catalog has `collections` calling `player.claimCollection` and emitting `collections.completed` afterwards; with `economy` declared below `collections`, the subscription would be an upward import. | README-R L59, L104, L171, L67 (`docs/research/README.md`) | high |
-| C10 | README-R's `words` body carries `locked: number[]` and is "stateless"; DOMAIN's `words` body is `{ questionIndex, word }` against a `Solve` DO. | README-R L223; DOMAIN L402 | high |
-| C11 | `PuzzleStats.recordSolve` is described as keyed on the puzzle's `drop_date` (README-R L137, DO R3) while the `solve.finished` payload/consumer text carries the solver's `dayKey` (README-R L170). | README-R L137, L170; `docs/research/durable-objects-d1-domain.md` R3 | high |
-| C12 | README-R declares `/check` stateless yet "only while autocheck is on", and `finish` "idempotent per sessionId" while `finishSolve` sets `session = null`. | README-R L230, L232, L102 | high |
-| C13 | Workers RPC preserves only `message` and the prototype `name` of a thrown error, so a domain error code must ride in `message`. | https://developers.cloudflare.com/workers/runtime-apis/rpc/error-handling/ (as cited in HONO F4 and README-R) | high |
-| C14 | `normalizeWord` must be NFC → strip separators → `toLocaleUpperCase(lang)` → fold (`ru: Ё→Е`, `uk`: none) → alphabet whitelist; NFD + strip-marks merges `й→и` and `ї→і`. | `docs/research/crossword-content-pipeline.md` F3 (measured on Node 26.8.1) | high |
-| C15 | Ukrainian alphabet has 33 letters incl. Ґ Є І Ї and no Ё Ъ Ы Э; Russian has 33 incl. Ё (32 after folding Ё→Е). | standard reference (CONTENT F3 lists the letters; sizes not fetched from a primary source) | medium |
-| C16 | The ЙЦУКЕН row assignments used in `KEYBOARDS.uk/ru` match the conventional Ukrainian/Russian layouts (Ґ on the extra key, Ъ/Э on the right edge). | standard keyboard convention — UNVERIFIED against a primary layout reference | medium |
-| C17 | `import type { Hook } from "@hono/zod-validator"` and a hook returning `c.json({...}, 400)` type-check on TS 7.0.2 and produce a typed 400 branch in `hc`. | `docs/research/hono-best-practices.md` F3/F6 (verified locally there) | medium |
-| C18 | Branded id types survive into the client's `InferResponseType` unchanged (i.e. Hono's `JSONParsed<T>` keeps the `$brand` intersection). | not verified — UNVERIFIED | low |
+| id | claim | source | confidence | verdict |
+|---|---|---|---|---|
+| C1 | `@hono/zod-validator` supports targets `json`, `form`, `query`, `param`, `header`, `cookie`; validators stack; header keys must be lowercase; data is read with `c.req.valid(target)`. | https://hono.dev/docs/guides/validation | high | confirmed |
+| C2 | The zValidator hook is `(result, c) => Response \| void`; returning a Response short-circuits; default parsing is `safeParseAsync`; `validationFunction` overrides it; `InferInput` comes from `hono/validator`. | https://github.com/honojs/middleware/tree/main/packages/zod-validator (README) | high | confirmed |
+| C3 | `@hono/zod-validator@0.9.1` peers are `zod ^3.25.0 \|\| ^4.0.0` and `hono >=4.11.2`; npm latest on 2026-09-02: hono 4.13.5, zod 4.5.4, @hono/zod-validator 0.9.1. | `npm view @hono/zod-validator@0.9.1 peerDependencies`; `npm view hono version`; `npm view zod version` | high | confirmed |
+| C4 | Hono RPC requires chained routes, explicit status literals in `c.json(data, 200)`, `strict: true` on both sides; `InferResponseType<T, 200>` selects by status; `hcWithType` pre-compilation is the documented performance pattern; `c.notFound()` is untyped; path/query values are strings. | https://hono.dev/docs/guides/rpc | high | confirmed |
+| C5 | `z.object()` strips unknown keys, `z.strictObject()` rejects them, `z.looseObject()` passes them through; `z.discriminatedUnion("key", [...])` dispatches on a literal discriminator. | https://zod.dev/api | high | confirmed |
+| C6 | `z.iso.datetime()` requires seconds by default and accepts only `Z` unless `{ offset: true }`/`{ local: true }`; `z.int()` is safe-integer; `z.coerce.number()` has `unknown` input; `z.stringbool()` parses true/false string sets case-insensitively; `.default()` short-circuits while `.prefault()` is parsed. | https://zod.dev/api | high | confirmed |
+| C7 | `.brand<"X">()` changes only the inferred type (`T & z.$brand<"X">`), not runtime behaviour; direction `in\|out\|inout` since 4.2. | https://zod.dev/api | high | confirmed |
+| C8 | `z.treeifyError` returns a nested tree; `z.flattenError` returns `{ formErrors, fieldErrors }` and is "best for single-level schemas"; `.format()`/`.flatten()`/`z.formatError` are deprecated. | https://zod.dev/error-formatting | high | confirmed |
+| C9 | README-R's module table has `economy` subscribing to `collections.completed` while its own event catalog has `collections` calling `player.claimCollection` and emitting `collections.completed` afterwards; with `economy` declared below `collections`, the subscription would be an upward import. | README-R L59, L104, L171, L67 (`docs/research/README.md`) | high | confirmed |
+| C10 | [UNVERIFIED] README-R's `words` body carries `locked: number[]` and is "stateless"; DOMAIN's `words` body is `{ questionIndex, word }` against a `Solve` DO. | README-R L223; DOMAIN L402 | high | unverifiable |
+| C11 | [UNVERIFIED] `PuzzleStats.recordSolve` is described as keyed on the puzzle's `drop_date` (README-R L137, DO R3) while the `solve.finished` payload/consumer text carries the solver's `dayKey` (README-R L170). | README-R L137, L170; `docs/research/durable-objects-d1-domain.md` R3 | high | unverifiable |
+| C12 | [UNVERIFIED] README-R declares `/check` stateless yet "only while autocheck is on", and `finish` "idempotent per sessionId" while `finishSolve` sets `session = null`. | README-R L230, L232, L102 | high | unverifiable |
+| C13 | Workers RPC preserves only `message` and the prototype `name` of a thrown error, so a domain error code must ride in `message`. | https://developers.cloudflare.com/workers/runtime-apis/rpc/error-handling/ (as cited in HONO F4 and README-R) | high | confirmed |
+| C14 | [UNVERIFIED] `normalizeWord` must be NFC → strip separators → `toLocaleUpperCase(lang)` → fold (`ru: Ё→Е`, `uk`: none) → alphabet whitelist; NFD + strip-marks merges `й→и` and `ї→і`. | `docs/research/crossword-content-pipeline.md` F3 (measured on Node 26.8.1) | high | unverifiable |
+| C15 | [UNVERIFIED] Ukrainian alphabet has 33 letters incl. Ґ Є І Ї and no Ё Ъ Ы Э; Russian has 33 incl. Ё (32 after folding Ё→Е). | standard reference (CONTENT F3 lists the letters; sizes not fetched from a primary source) | medium | unverifiable |
+| C16 | [UNVERIFIED] The ЙЦУКЕН row assignments used in `KEYBOARDS.uk/ru` match the conventional Ukrainian/Russian layouts (Ґ on the extra key, Ъ/Э on the right edge). | standard keyboard convention — UNVERIFIED against a primary layout reference | medium | unverifiable |
+| C17 | [UNVERIFIED] `import type { Hook } from "@hono/zod-validator"` and a hook returning `c.json({...}, 400)` type-check on TS 7.0.2 and produce a typed 400 branch in `hc`. | `docs/research/hono-best-practices.md` F3/F6 (verified locally there) | medium | unverifiable |
+| C18 | [UNVERIFIED] Branded id types survive into the client's `InferResponseType` unchanged (i.e. Hono's `JSONParsed<T>` keeps the `$brand` intersection). | not verified — UNVERIFIED | low | unverifiable |
 
 ## Open questions
 
@@ -735,3 +735,26 @@ const NO_SUBSCRIPTIONS = ["economy", "content", "player", "identity", "solving",
 8. **Ledger depth** in `WalletView.ledger` (50 entries from the aggregate's ring buffer) — confirm the `UserState` size budget (< 100 KB) with 50 entries × ~80 bytes.
 9. **`GET /leaderboard/week`** is new (Profile "This week" card); confirm the product wants a weekly board at all before M5, otherwise `ProfileView.weekSolves` suffices.
 10. **`DELETE /me` semantics** when a solve is in progress and when `plan.tier !== "lite"` (mock billing) — purge unconditionally in v1.
+
+## Fact-check log
+
+| id | verdict | source |
+|---|---|---|
+| C1 | confirmed | https://hono.dev/docs/guides/validation |
+| C2 | confirmed | https://github.com/honojs/middleware/tree/main/packages/zod-validator |
+| C3 | confirmed | npm view @hono/zod-validator@0.9.1 peerDependencies; npm view hono version; npm view zod version |
+| C4 | confirmed | https://hono.dev/docs/guides/rpc |
+| C5 | confirmed | https://zod.dev/api |
+| C6 | confirmed | https://zod.dev/api |
+| C7 | confirmed | https://zod.dev/api |
+| C8 | confirmed | https://zod.dev/error-formatting |
+| C9 | confirmed | docs/research/README.md lines 59 and 104 |
+| C10 | unverifiable | Document does not provide sufficient excerpts to verify the exact content of both documents' specifications. |
+| C11 | unverifiable | Document does not provide sufficient excerpts to verify the exact wording in both locations. |
+| C12 | unverifiable | Document does not provide sufficient excerpts to verify the exact wording in README-R. |
+| C13 | confirmed | https://developers.cloudflare.com/workers/runtime-apis/rpc/error-handling/ |
+| C14 | unverifiable | No primary source URL provided; claim refers to local measurement in CONTENT F3. |
+| C15 | unverifiable | Document acknowledges this is standard reference (medium confidence) without primary URL verification. |
+| C16 | unverifiable | Document explicitly marks this as UNVERIFIED against a primary layout reference. |
+| C17 | unverifiable | Claim verified locally in hono-best-practices F3/F6 but no external primary source URL provided. |
+| C18 | unverifiable | Document explicitly marks this as unverified with low confidence. |

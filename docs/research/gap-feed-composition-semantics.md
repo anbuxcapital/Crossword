@@ -38,7 +38,7 @@ Verification method: official docs fetched as markdown (`developers.cloudflare.c
 Source: https://developers.cloudflare.com/workers/runtime-apis/cache/ (fetched as `index.md`).
 
 - "The Cache API is available globally but the contents of the cache do not replicate outside of the originating data center."
-- "Workers deployed to custom domains have access to functional `cache` operations. So do Pages functions … However, any Cache API operations in the Cloudflare Workers dashboard editor and Playground previews will have no impact. For Workers fronted by Cloudflare Access, the Cache API is not currently available." The page does not describe behaviour on `*.workers.dev`; a wrangler warning and third-party write-ups say operations there are no-ops (**UNVERIFIED** against an official page — treat `workers.dev` as "no cache").
+- "Workers deployed to custom domains have access to functional `cache` operations. So do Pages functions … However, any Cache API operations in the Cloudflare Workers dashboard editor and Playground previews will have no impact. For Workers fronted by Cloudflare Access, the Cache API is not currently available." The page does not describe behaviour on `*.workers.dev`; a wrangler warning and third-party write-ups say operations there are no-ops (**[UNVERIFIED]** against an official page — treat `workers.dev` as "no cache").
 - `cache.put(request, response)`: "Either a string or a Request object to serve as the key. If a string is passed, it is interpreted as the URL for a new Request object." Throws if the request method is not `GET`, the response status is `206`, or the response has `Vary: *`. "Responses with `Set-Cookie` headers are never cached". Respected response headers: `Cache-Control`, `Cache-Tag`, `ETag`, `Expires`, `Last-Modified`. "The `stale-while-revalidate` and `stale-if-error` directives are not supported when using the `cache.put` or `cache.match` methods."
 - `cache.match()`: "never sends a subrequest to the origin. If no matching response is found in cache, the promise … is fulfilled with `undefined`." "Unlike the browser Cache API, Cloudflare Workers do not support the `ignoreSearch` or `ignoreVary` options on `match()`. You can accomplish this behavior by removing query strings or HTTP headers at `put()` time."
 - "The `cache.put` method is not compatible with tiered caching."
@@ -111,7 +111,7 @@ Sources: https://tanstack.com/query/latest/docs/framework/react/guides/important
 
 - Defaults: `staleTime` 0 ("consider cached data as stale"), `gcTime` 5 minutes, stale queries refetch "when new instances of the query mount, the window is refocused, the network is reconnected"; failed queries retry 3 times with backoff.
 - Infinite queries: `initialPageParam` is required; "When an infinite query becomes `stale` and needs to be refetched, each group is fetched `sequentially`, starting from the first one"; `maxPages` bounds how many pages are kept and refetched. Consequence: a 10-page feed must set `maxPages` (3 is enough for the home screen) or a focus refetch fires ten sequential requests.
-- The `useQuery` reference page was not reachable (404 at three URLs on 2026-09-02); the `staleTime: 'static'` value is therefore not relied upon.
+- The `useQuery` reference page was not reachable (404 at three URLs on 2026-09-02); the `staleTime: 'static'` value is therefore not relied upon. **[UNVERIFIED]** — the recommendation in R4 uses numeric milliseconds instead, which is always supported.
 
 ### F9. Workers Vitest integration facts relevant to the feed tests
 
@@ -119,7 +119,7 @@ Sources: https://developers.cloudflare.com/workers/testing/vitest-integration/is
 
 - "Storage isolation is per test file … any writes to storage during a test file are not visible to other test files"; share storage with `--max-workers=1 --no-isolate`.
 - "Vitest's fake timers do not apply to KV, R2 and cache simulators" — confirms a Cache API simulator exists inside the test runtime, and that TTL expiry cannot be tested by advancing fake time (test the memory LRU's TTL with an injected clock instead). Fake timers do drive `Date` for `dayKey` computations.
-- Local Cache API semantics in Miniflare are implemented with `http-cache-semantics` and can differ from production for unusual status codes (github.com/cloudflare/workers-sdk/issues/9040 — **UNVERIFIED** beyond that issue; irrelevant for 200 JSON).
+- Local Cache API semantics in Miniflare are implemented with `http-cache-semantics` and can differ from production for unusual status codes (github.com/cloudflare/workers-sdk/issues/9040 — **[UNVERIFIED]** beyond that issue; irrelevant for 200 JSON).
 
 ### F10. Randomness and dates inside the Worker (verified)
 
@@ -148,7 +148,7 @@ Any per-user change to the *daily* breaks three things at once: the shared socia
 | Level | No effect on the daily, the stream order, or the streak rule. Used in `mysteryPick`: `newbie → {EASY}`, `casual → {EASY, MEDIUM}`, `shark → any, TRICKY first`. Everything else the level copy promises ("generous hints") is economy, out of scope here. |
 | Topics | No effect on the daily or the stream. Used in `mysteryPick`: prefer candidates whose `topics_json ∩ user.topics ≠ ∅` when ≥ 8 such candidates exist. |
 | Base posts | `n=0` today's drop (or the newest ≤ today if the cron has not filled today — flagged `isToday:false`), `n=1..` the previous days. The "Weekend Grid" post is simply the most recent Sat/Sun row; "Studio Mini" is the previous weekday row. Nothing pinned. |
-| Kicker | Rendered by the client from `day` and `kind` (`MONDAY MINI · SEP 1`, `WEEKEND GRID · SEP 5`, `FROM THE ARCHIVE · AUG 30` for `n ≥ 2`), never stored — fixes F14.11 of the domain spec. |
+| Kicker | Rendered by the client from `day` and `kind` (`MONDAY MINI · SEP 1`, `WEEKEND GRID · SEP 5`, `FROM THE ARCHIVE · AUG 30` for `n ≥ 2`), never stored — fixes F14.11 of the domain spec (reference to `domain-spec-extraction.md` F14.11 unverified; this document's treatment of kickers as client-computed rather than stored remains sound). |
 | Streak-save copy | "One Mini keeps it alive" on weekdays, "One grid keeps it alive" on weekends: client copy keyed on `streakAtRisk.kind`. |
 
 Escape hatch if product later wants both a mini and a grid at weekends: add a `slot TEXT NOT NULL DEFAULT 'daily'` column to the PK `(day, lang, slot)` and to the feed index `(lang, day DESC, slot DESC)`; the cursor then carries `[day, slot]` (plan verified: `SEARCH d USING INDEX daily_drops_feed (lang=? AND (day,slot)<(?,?))`). Do not do this in v1.
@@ -467,30 +467,30 @@ describe("feed pagination", () => {
 
 ## Claims
 
-| id | claim | source | confidence |
-|---|---|---|---|
-| C1 | Workers Cache API contents "do not replicate outside of the originating data center"; `cache.delete` purges only the local data centre | https://developers.cloudflare.com/workers/runtime-apis/cache/ | high |
-| C2 | "Workers deployed to custom domains have access to functional `cache` operations"; dashboard editor/Playground operations "will have no impact"; not available behind Cloudflare Access | https://developers.cloudflare.com/workers/runtime-apis/cache/ | high |
-| C3 | Cache API operations on `*.workers.dev` are no-ops (wrangler warns) — not stated on the official Cache page | github.com/cloudflare/workers-sdk issues / search summary — **UNVERIFIED** | low |
-| C4 | `cache.put` throws for non-`GET` keys, `206` responses and `Vary: *`; `Set-Cookie` responses are never cached; `stale-while-revalidate` unsupported on put/match; no `ignoreVary`/`ignoreSearch` on `match()`; a string key "is interpreted as the URL for a new Request object"; `match()` never sub-requests and resolves `undefined` on miss | https://developers.cloudflare.com/workers/runtime-apis/cache/ | high |
-| C5 | Cache API honours `Cache-Control`, `Cache-Tag`, `ETag`, `Expires`, `Last-Modified` on the stored response; `put` should run in `ctx.waitUntil`; Hono exposes it as `c.executionCtx.waitUntil` | https://developers.cloudflare.com/workers/runtime-apis/cache/, https://developers.cloudflare.com/workers/runtime-apis/context/, https://developers.cloudflare.com/workers/examples/cache-api/, https://hono.dev/docs/api/context | high |
-| C6 | Cloudflare shared cache: `private` must not be stored by a shared cache; `no-store` forbids storing anything; with an `Authorization` header content is cached "only if must-revalidate, public, or s-maxage is also present"; `s-maxage` overrides `max-age` in shared caches | https://developers.cloudflare.com/cache/concepts/cache-control/ | high |
-| C7 | `hono/cache` "currently supports Cloudflare Workers projects using custom domains", keys by `c.req.url` by default, stores under `/.hono/cache?__hono_cache_key=…`, errors on `vary: '*'` | https://hono.dev/docs/middleware/builtin/cache | high |
-| C8 | Isolate global state may persist across requests on one isolate but "there is no guarantee that any two user requests will be routed to the same or a different instance"; 128 MB per isolate; Cache API 50/1,000 calls per request (Free/Paid) | https://developers.cloudflare.com/workers/reference/how-workers-works/, https://developers.cloudflare.com/workers/platform/limits/ | high |
-| C9 | D1 bills rows read/written, exposes `meta.rows_read`/`rows_written`/`served_by_primary`/`timings.sql_duration_ms`; `EXPLAIN QUERY PLAN` shows `USING INDEX <name>`; composite indexes need a left-prefix | https://developers.cloudflare.com/d1/best-practices/use-indexes/, https://developers.cloudflare.com/d1/worker-api/return-object/ | high |
-| C10 | D1 limits: 100 bound parameters per query, 100 KB per statement, applied per statement inside `db.batch()` | https://developers.cloudflare.com/d1/platform/limits/ | high |
-| C11 | EQP vocabulary: `SCAN` = full scan, `SEARCH` = subset, `USING COVERING INDEX` = no table access, `USE TEMP B-TREE FOR ORDER BY` = unindexed sort; output format "may change between SQLite releases" | https://www.sqlite.org/eqp.html | high |
-| C12 | Row-value keyset comparisons `(a,b) > (?,?)` use an index and beat `OFFSET`; available since SQLite 3.15.0 | https://www.sqlite.org/rowvalue.html | high |
-| C13 | On the proposed schema every feed/overlay/stories/mystery/next query plans as `SEARCH … USING INDEX` (`daily_drops_feed`, `player_solves_user_puzzle`, covering `player_solves_user_day`); without `(user_id, day_key)` stories is `SCAN player_solves` + temp B-tree; a `limit=20` page reads ≈ 61 skeleton rows | local run, SQLite 3.51.0 (F7) — D1's exact SQLite version is not published | high (plan) / medium (D1 parity) |
-| C14 | TanStack Query v5: `staleTime` defaults to 0, `gcTime` to 5 min, stale queries refetch on mount/focus/reconnect; infinite queries refetch pages "sequentially, starting from the first one"; `maxPages` bounds retained/refetched pages; `initialPageParam` is required | https://tanstack.com/query/latest/docs/framework/react/guides/important-defaults, …/guides/infinite-queries, …/guides/caching | high |
-| C15 | Workers Vitest integration: storage isolation is per test file; "fake timers do not apply to KV, R2 and cache simulators" (a cache simulator exists in tests) | https://developers.cloudflare.com/workers/testing/vitest-integration/isolation-and-concurrency/, …/known-issues/ | high |
-| C16 | `SHA-256(seed) → uint32` is deterministic per input (`456187629` for `mystery:u_1:2026-09-02`, different for the next day); Web Crypto `crypto.subtle.digest` is available in Workers | local Node 26.8.1 run; https://developers.cloudflare.com/workers/runtime-apis/web-crypto/ | high |
-| C17 | 2026-09-01 is a Tuesday, 2026-09-05 a Saturday, 2026-09-06 a Sunday; `Intl.DateTimeFormat("en-CA", …)` yields `YYYY-MM-DD` day keys; `Date.now()` in Workers "returns the time of the last I/O" | local Node run; https://developers.cloudflare.com/workers/runtime-apis/web-standards/ | high |
-| C18 | D1 supports `json_extract`, `json_each`, `->>`, and indexes on generated columns derived from JSON | https://developers.cloudflare.com/d1/sql-api/query-json/ | high |
-| C19 | Existing decisions: `player_solves` is `INSERT OR IGNORE` on `user_id:puzzle_id` (replays create no row); streak extends on any first solve in any language; `content_daily_drops` PK `(day, lang)`; `PuzzleStats` commits `solvingNow` at most every 15 s; feed reads never hit a DO | `docs/research/README.md` §Domain model/§D1 schema, `durable-objects-d1-domain.md` R8/R9 | high |
-| C20 | Prototype composition: `[mini1, streak_save?, cross1, wheel#base, mini2]` then per batch `wheel|mystery + 2 archive posts`; mystery = unseeded random over `ORDER`; stories/streak strip are fixtures | `prototype-logic.js` L262-326; `domain-spec-extraction.md` F9/F14 | high |
-| C21 | Miniflare's local Cache API uses `http-cache-semantics` and may differ from production for unusual status codes | github.com/cloudflare/workers-sdk/issues/9040 — **UNVERIFIED** (third-party issue, not docs) | low |
-| C22 | Cache-Tag purge-by-tag availability/plan requirements for Cache-API-stored entries | not researched — **UNVERIFIED** | low |
+| id | claim | source | confidence | verdict |
+|---|---|---|---|---|
+| C1 | Workers Cache API contents "do not replicate outside of the originating data center"; `cache.delete` purges only the local data centre | https://developers.cloudflare.com/workers/runtime-apis/cache/ | high | confirmed |
+| C2 | "Workers deployed to custom domains have access to functional `cache` operations"; dashboard editor/Playground operations "will have no impact"; not available behind Cloudflare Access | https://developers.cloudflare.com/workers/runtime-apis/cache/ | high | confirmed |
+| C3 | Cache API operations on `*.workers.dev` are no-ops (wrangler warns) — not stated on the official Cache page | github.com/cloudflare/workers-sdk issues / search summary — **UNVERIFIED** | low | unverifiable |
+| C4 | `cache.put` throws for non-`GET` keys, `206` responses and `Vary: *`; `Set-Cookie` responses are never cached; `stale-while-revalidate` unsupported on put/match; no `ignoreVary`/`ignoreSearch` on `match()`; a string key "is interpreted as the URL for a new Request object"; `match()` never sub-requests and resolves `undefined` on miss | https://developers.cloudflare.com/workers/runtime-apis/cache/ | high | confirmed |
+| C5 | Cache API honours `Cache-Control`, `Cache-Tag`, `ETag`, `Expires`, `Last-Modified` on the stored response; `put` should run in `ctx.waitUntil`; Hono exposes it as `c.executionCtx.waitUntil` | https://developers.cloudflare.com/workers/runtime-apis/cache/, https://developers.cloudflare.com/workers/runtime-apis/context/, https://developers.cloudflare.com/workers/examples/cache-api/, https://hono.dev/docs/api/context | high | confirmed |
+| C6 | Cloudflare shared cache: `private` must not be stored by a shared cache; `no-store` forbids storing anything; with an `Authorization` header content is cached "only if must-revalidate, public, or s-maxage is also present"; `s-maxage` overrides `max-age` in shared caches | https://developers.cloudflare.com/cache/concepts/cache-control/ | high | confirmed |
+| C7 | `hono/cache` "currently supports Cloudflare Workers projects using custom domains", keys by `c.req.url` by default, stores under `/.hono/cache?__hono_cache_key=…`, errors on `vary: '*'` | https://hono.dev/docs/middleware/builtin/cache | high | confirmed |
+| C8 | Isolate global state may persist across requests on one isolate but "there is no guarantee that any two user requests will be routed to the same or a different instance"; 128 MB per isolate; Cache API 50/1,000 calls per request (Free/Paid) | https://developers.cloudflare.com/workers/reference/how-workers-works/, https://developers.cloudflare.com/workers/platform/limits/ | high | confirmed |
+| C9 | D1 bills rows read/written, exposes `meta.rows_read`/`rows_written`/`served_by_primary`/`timings.sql_duration_ms`; `EXPLAIN QUERY PLAN` shows `USING INDEX <name>`; composite indexes need a left-prefix | https://developers.cloudflare.com/d1/best-practices/use-indexes/, https://developers.cloudflare.com/d1/worker-api/return-object/ | high | confirmed |
+| C10 | D1 limits: 100 bound parameters per query, 100 KB per statement, applied per statement inside `db.batch()` | https://developers.cloudflare.com/d1/platform/limits/ | high | confirmed |
+| C11 | EQP vocabulary: `SCAN` = full scan, `SEARCH` = subset, `USING COVERING INDEX` = no table access, `USE TEMP B-TREE FOR ORDER BY` = unindexed sort; output format "may change between SQLite releases" | https://www.sqlite.org/eqp.html | high | confirmed |
+| C12 | Row-value keyset comparisons `(a,b) > (?,?)` use an index and beat `OFFSET`; available since SQLite 3.15.0 | https://www.sqlite.org/rowvalue.html | high | confirmed |
+| C13 | On the proposed schema every feed/overlay/stories/mystery/next query plans as `SEARCH … USING INDEX` (`daily_drops_feed`, `player_solves_user_puzzle`, covering `player_solves_user_day`); without `(user_id, day_key)` stories is `SCAN player_solves` + temp B-tree; a `limit=20` page reads ≈ 61 skeleton rows | local run, SQLite 3.51.0 (F7) — D1's exact SQLite version is not published | high (plan) / medium (D1 parity) | confirmed |
+| C14 | TanStack Query v5: `staleTime` defaults to 0, `gcTime` to 5 min, stale queries refetch on mount/focus/reconnect; infinite queries refetch pages "sequentially, starting from the first one"; `maxPages` bounds retained/refetched pages; `initialPageParam` is required | https://tanstack.com/query/latest/docs/framework/react/guides/important-defaults, …/guides/infinite-queries, …/guides/caching | high | confirmed |
+| C15 | Workers Vitest integration: storage isolation is per test file; "fake timers do not apply to KV, R2 and cache simulators" (a cache simulator exists in tests) | https://developers.cloudflare.com/workers/testing/vitest-integration/isolation-and-concurrency/, …/known-issues/ | high | confirmed |
+| C16 | `SHA-256(seed) → uint32` is deterministic per input (`456187629` for `mystery:u_1:2026-09-02`, different for the next day); Web Crypto `crypto.subtle.digest` is available in Workers | local Node 26.8.1 run; https://developers.cloudflare.com/workers/runtime-apis/web-crypto/ | high | confirmed |
+| C17 | 2026-09-01 is a Tuesday, 2026-09-05 a Saturday, 2026-09-06 a Sunday; `Intl.DateTimeFormat("en-CA", …)` yields `YYYY-MM-DD` day keys; `Date.now()` in Workers "returns the time of the last I/O" | local Node run; https://developers.cloudflare.com/workers/runtime-apis/web-standards/ | high | confirmed |
+| C18 | D1 supports `json_extract`, `json_each`, `->>`, and indexes on generated columns derived from JSON | https://developers.cloudflare.com/d1/sql-api/query-json/ | high | confirmed |
+| C19 | Existing decisions: `player_solves` is `INSERT OR IGNORE` on `user_id:puzzle_id` (replays create no row); streak extends on any first solve in any language; `content_daily_drops` PK `(day, lang)`; `PuzzleStats` commits `solvingNow` at most every 15 s; feed reads never hit a DO | `docs/research/README.md` §Domain model/§D1 schema, `durable-objects-d1-domain.md` R8/R9 | high | confirmed |
+| C20 | Prototype composition: `[mini1, streak_save?, cross1, wheel#base, mini2]` then per batch `wheel|mystery + 2 archive posts`; mystery = unseeded random over `ORDER`; stories/streak strip are fixtures | `prototype-logic.js` L262-326; `domain-spec-extraction.md` F9/F14 | high | confirmed |
+| C21 | Miniflare's local Cache API uses `http-cache-semantics` and may differ from production for unusual status codes | github.com/cloudflare/workers-sdk/issues/9040 — **UNVERIFIED** (third-party issue, not docs) | low | unverifiable |
+| C22 | Cache-Tag purge-by-tag availability/plan requirements for Cache-API-stored entries | not researched — **UNVERIFIED** | low | unverifiable |
 
 ---
 
@@ -506,3 +506,32 @@ describe("feed pagination", () => {
 8. **"Solving now" precision**: with heartbeats every 30 s and commits every 15 s the number is a 15–45 s-old estimate. Show it only when `≥ 2`? The prototype shows `297 solving now` always; the honest threshold is a product choice.
 9. **Stories for brand-new players**: R6 renders days before `created_at` as `before` rather than `missed`. The design shows six labelled rings; confirm the visual for `before`.
 10. **`player_state` wheel columns** require a projection change + `reproject()` of all users (cheap at launch, ~1 DO request per user). Alternative: the client fills `canSpin` from `/me` and the server always emits `canSpin: null`. R3 chose the projection columns for a self-sufficient feed response.
+
+---
+
+## Fact-check log
+
+| id | verdict | source |
+|---|---|---|
+| C1 | confirmed | https://developers.cloudflare.com/workers/runtime-apis/cache/ |
+| C2 | confirmed | https://developers.cloudflare.com/workers/runtime-apis/cache/ |
+| C3 | unverifiable | https://developers.cloudflare.com/workers/runtime-apis/cache/ (no mention of workers.dev) |
+| C4 | confirmed | https://developers.cloudflare.com/workers/runtime-apis/cache/ |
+| C5 | confirmed | https://developers.cloudflare.com/workers/runtime-apis/cache/, https://developers.cloudflare.com/workers/runtime-apis/context/, https://hono.dev/docs/api/context |
+| C6 | confirmed | https://developers.cloudflare.com/cache/concepts/cache-control/ |
+| C7 | confirmed | https://hono.dev/docs/middleware/builtin/cache |
+| C8 | confirmed | https://developers.cloudflare.com/workers/reference/how-workers-works/, https://developers.cloudflare.com/workers/platform/limits/ |
+| C9 | confirmed | https://developers.cloudflare.com/d1/best-practices/use-indexes/, https://developers.cloudflare.com/d1/worker-api/return-object/ |
+| C10 | confirmed | https://developers.cloudflare.com/d1/platform/limits/ |
+| C11 | confirmed | https://www.sqlite.org/eqp.html |
+| C12 | confirmed | https://www.sqlite.org/rowvalue.html |
+| C13 | confirmed | F7 local SQLite 3.51.0 verification in document; exact D1 version unknown but design avoids version dependencies |
+| C14 | confirmed | https://tanstack.com/query/latest/docs/framework/react/guides/important-defaults, …/guides/infinite-queries |
+| C15 | confirmed | https://developers.cloudflare.com/workers/testing/vitest-integration/isolation-and-concurrency/, …/known-issues/ |
+| C16 | confirmed | Local Node 26.8.1 verification confirms 456187629; https://developers.cloudflare.com/workers/runtime-apis/web-crypto/ |
+| C17 | confirmed | Local Node verification confirms dates; https://developers.cloudflare.com/workers/runtime-apis/web-standards/ |
+| C18 | confirmed | https://developers.cloudflare.com/d1/sql-api/query-json/ |
+| C19 | confirmed | /Users/peter/Projects/IOS Crosswords/Crosswords app with feed/design_handoff_crosscut_feed/README.md §Domain model/§D1 schema |
+| C20 | confirmed | /private/tmp/claude-501/-Users-peter-Projects-IOS-Crosswords/9d054732-b7c8-4939-80a1-8eb9aba21fda/scratchpad/prototype-logic.js L309-326 and L262-270 |
+| C21 | unverifiable | github.com/cloudflare/workers-sdk/issues/9040 (third-party, not official documentation) |
+| C22 | unverifiable | Not addressed in gap-feed-composition-semantics.md |

@@ -11,6 +11,7 @@ Synthesized 2026-09-02 from the eleven topic documents in this directory (`domai
 - Stack pins: wrangler 4.128.0, hono 4.13.5, zod 4.5.4, @hono/zod-validator 0.9.1, TypeScript 7.0.2, vitest 4.1.11, **@cloudflare/vitest-plugin 1.1.3** (the renamed successor of vitest-pool-workers 0.22.0), pnpm 11.24.0, turbo 2.10.12, Node 26.8.1.
 - Identity v1: server-minted HS256 device tokens (`hono/jwt`, `kid` rotation), no accounts; Better Auth is the documented v2 path.
 - The prototype's data format is adopted verbatim as the authoring format; content is JSON in the repo, validated by a shared Zod+structural validator, imported through one admin endpoint, and dropped per user-local calendar day.
+- **Gap round integrated: see § Gap round (2026-09-02).**
 
 ## Stack decisions
 
@@ -56,7 +57,7 @@ Synthesized 2026-09-02 from the eleven topic documents in this directory (`domai
 | `player` | `User` DO: prefs/tz/plan, wallet, streak, completions, likes/saves, wheel, hint log, active solve session, install/token version, merge fields; projection `player_state` + fact rows `player_solves` | `player_state`, `player_solves` | `shared`, `events` | — |
 | `identity` | device-token mint/verify/refresh, auth middleware, bootstrap, `/me`, `DELETE /me` | — | `shared`, `player` | — |
 | `solving` | start/progress/word-check/hints/finish orchestration; the only module that reads `content_puzzle_secrets`; pure `questions()/sweep()/timeBonus()/starsFor()` | — | `shared`, `events`, `content`, `player` | — |
-| `economy` | wallet view, token packs (mock purchase), plan (mock), wheel spin, hint price constants | `economy_purchases` | `shared`, `events`, `player` | `collections.completed` (grant reward via `player.claimCollection` — see catalog) |
+| `economy` | wallet view, token packs (mock purchase), plan (mock), wheel spin, hint price constants | `economy_purchases`, `economy_ledger` | `shared`, `events`, `player` | — (no subscriptions; collections owns the reward grant via `player.claimCollection`, gap-api-contract-freeze F2) |
 | `social` | `PuzzleStats` DO per puzzle (likes, solved, noHintSolved, solvingNow presence, top-10 today), like/save toggles | `social_puzzle_stats` | `shared`, `events`, `player`, `content` | `solve.finished`, `solve.started/paused/resumed`, `social.likeToggled` |
 | `collections` | progress computation, unlock rules, reward claim orchestration | — (reads `content_collection_puzzles` via `content` query, `player_solves` via `player` query) | `shared`, `events`, `content`, `player` | `solve.finished` |
 | `leaderboard` | weekly board materialisation, per-puzzle top solvers query | `leaderboard_week` | `shared`, `player`, `content` | — (cron-driven) |
@@ -93,17 +94,20 @@ packages/api-client/ hcWithType over the gateway's emitted .d.ts (tsc --emitDecl
 - Aggregates are reached with `aggregateStub(env.USER, "user", userId)` (env bindings, so a future `script_name` re-point needs no caller change); the `Projections` entrypoint is reached by loopback `ctx.exports.Projections` (already what core does; typed by `wrangler types`).
 - Errors cross RPC as `{ name, message }` only (custom `name` survival observed, not documented): `app.onError` maps `err.name === "DomainError"` → 422, `"NotInitializedError"` → 404, `"MergedError"` → 409, `HTTPException` → its status, `ZodError` → 400, `.retryable` → 503, else 500 with `requestId`. Never `instanceof`, never branch on `.remote`.
 
-### Request lifecycle: finishing a puzzle
+### Request lifecycle: the final word locks and finishes (gap-solve-protocol-integrity R2)
 
-`POST /v1/solves/:solveId/finish { grid: string[] }` with `Authorization: Bearer <device token>`:
+The finishing request `POST /v1/solves/:solveId/words { questionIndex, word, locked, lockProof }` with the last typed word inlines the finish. No separate `POST /finish` exists on the critical path. When `User.submitWord` finds `locked.length === questionCount`:
 
 1. Gateway middleware: `requestId({ headerName: "" })` → `timing` → structured logger → `secureHeaders` → `bodyLimit(64 KB)` → `deviceAuth` (decode `kid`, `verify` HS256 with `iss/aud`, `typ === "device"`, `RL_USER.limit({ key: "u:<sub>" })`, `c.set("auth", { userId, tv })`) → `c.set("modules", createModules(requestContextFrom(c)))`.
-2. `solving.http`: `zValidator("param", …)` + `zValidator("json", FinishBody, hook)` → `modules.solving.finish({ solveId, grid })`.
-3. `solving.finish`: `player.getSnapshot(userId)` (one DO read) → asserts `session.id === solveId` → `content.withSecret(session.puzzleId)` (isolate cache, D1 fallback; never returned) → `gridMatches(normalize(grid), secret.sol)` else 422 `WRONG_GRID` → `player.finishSolve({ sessionId, now, minPlausibleMs })` — **one commit**: `elapsedMs = now − startedAt`, `secLeft = max(0, floor((par·1000 − elapsed)/1000))`, `tokens = replay||suspicious ? 0 : floor(secLeft/5)`, `stars = replay ? 0 : 10 + (hintsUsed === 0 ? 2 : 0)`, `completions[puzzleId]`, `applyStreak(dayKey(now, tz))`, `stats`, `session = null`, `ledgerSeq++`; projection flush writes `player_state` + `player_solves` (leaderboard fact) atomically.
-4. `solving.finish` builds `solve.finished { userId, puzzleId, solveId, lang, dropDate, solveTimeMs, secLeft, par, hintsUsed, firstSolve, suspicious, tokensEarned, starsEarned, dayKey, streak }` and `await dispatch(table, [event], ctx)`:
-   - critical, in order: `collections.onSolveFinished` (queries `content.collectionsContaining(puzzleId)`, checks completeness against `snapshot.completions`, calls `player.claimCollection({ collectionId, memberIds, reward })` → idempotent commit → emits `collections.completed`), `social.onSolveFinished` (`PuzzleStats.recordSolve`, excluded if `suspicious`).
-   - background: `notifications.onSolveFinished` (cancel today's reminder row), `analytics`.
-5. Response `SolveResult` from the snapshot + report: `{ solveTimeSec, secLeft, underPar, tokensEarned, starsEarned, noHintBonus, firstSolve, balances, streak: { count, extendedToday, week }, claimedCollections, nextPuzzleId, celebration }`. Two DO round-trips on the critical path (snapshot + finish) plus one `PuzzleStats` call; no D1 write on the request path except the projection flush.
+2. Route `POST /solves/:solveId/words`: `zValidator("json", WordsBody, hook)` → `content.withSecret(puzzleId)` (route-level, before DO call; cached) → `gridMatches(normalize(word), secret.answer[questionIndex])` locally (stateless) → calls `player.submitWord({ solveId, questionIndex, correct, topology })` **one DO hop**.
+3. Inside `User.submitWord` **one atomic commit** (gap-solve-protocol-integrity R2):
+   - if `correct`: `locked.push(q)`, `sweep(topology)` (recursively locks swept questions), push `locks[]{q, at, typed: true}`.
+   - if `locked.length === questionCount`: **inline finish** — `elapsedMs = now − startedAt − pausedMs`, `secLeft = max(0, floor((parSec·1000 − elapsed)/1000))`, compute `suspicious` flags (S1–S4), `tokens = replay || suspicious ? 0 : floor(secLeft/5)`, `stars = replay ? 0 : 10 + (hintsUsed === 0 ? 2 : 0)`, `completions[puzzleId] = {..., boardEligible, telemetry}`, `applyStreak(dayKey(now, tz))`, `session.status = "finished"`, `session.lastResult = SolveResult`, `ledgerSeq++` (entries written by appendEntry in commitTx).
+   - projection flush (via `Projections.apply` override) writes `player_state` + `player_solves` + `economy_ledger` atomically (one `DB.batch`).
+4. Route-level `dispatch(table, [event], ctx)`:
+   - critical, in order: `collections.checkAndClaim` → `player.claimCollection` → emit `collections.completed`; `social.recordSolve` (PuzzleStats, only if `boardEligible`, keyed by puzzle's `dropDate` per gap-api-contract-freeze F3).
+   - background: `notifications.cancelReminder`, `analytics`.
+5. Response `{ correct: true, …WordResult, finished: true, result: SolveResult }` from cached `lastResult`. Reties to the same `solveId` return 200 with the stored result (gap-api-contract-integrity R6, gap-solve-protocol-integrity R2); `POST /solves/:solveId/finish` (no body) is an idempotent gate that returns `lastResult` or 409 `NO_ACTIVE_SESSION` if the session was replaced.
 
 ## Domain model
 
@@ -113,24 +117,26 @@ packages/api-client/ hcWithType over the gateway's emitted .d.ts (tsc --emitDecl
 // player/internal/user.do.ts — keep JSON well under 100 KB (structuredClone per commit)
 interface UserState {
   createdAt: number; tz: string /* IANA, default "UTC" */; tzChangedDay: string | null;
-  lang: "en"|"uk"|"ru"; prefs: { level: "newbie"|"casual"|"shark"; topics: string[]; onboardingDone: boolean; notifications: "enabled"|"declined"|"skipped" };
+  lang: "en"|"uk"|"ru"; prefs: { level: "newbie"|"casual"|"shark"; topics: string[]; onboardingDone: boolean; notifications: { status: "enabled"|"declined"|"skipped"|"revoked"; streak: boolean; drop: boolean; rival: boolean; dropHourLocal: number } };
   plan: { tier: "lite"|"month"|"year"; expiresAt: number|null; source: "mock"|"revenuecat"|"stripe"|null };
   wallet: { tokens: number; stars: number }; ledgerSeq: number;
   streak: { count: number; lastSolvedDay: string|null; longest: number };   // effective streak computed on read
-  completions: Record<string, { day: string; solvedAt: number; timeMs: number; hintsUsed: number; tokens: number; stars: number; suspicious: boolean }>;
+  completions: Record<string, { day: string; solvedAt: number; timeMs: number; hintsUsed: number; tokens: number; stars: number; suspicious: boolean; boardEligible: boolean; telemetry: {...}; flags: string }>;
   likes: string[]; saves: string[];                                          // sorted puzzle ids
   wheel: { lastSpinDay: string|null; lastPrize: number|null; lastIndex: number|null };
   hints: { total: number; tokensSpent: number };
   stats: { solved: number; bestTimeMs: number|null };
-  collectionsClaimed: string[]; pushTokens: string[]; installs: string[];
-  session: null | { id: string; puzzleId: string; parSec: number; startedAt: number; pausedMs: number; pausedSince: number|null;
-                    locked: number[]; hintsUsed: number; hintLog: { q: number; kind: "fifty"|"letter"|"word"; cost: number; at: number }[]; autocheck: boolean; replay: boolean };
+  collectionsClaimed: string[]; pushTokens: { token: string; platform: "ios"|"android"; installId: string; appVersion?: string; addedAt: number; lastSeenAt: number }[];
+  session: null | SolveSession;  // gap-solve-protocol-integrity R2: full state machine with locked[], locks[], guesses, checkTickets, pendingFifty, lastResult
+  installs: string[]; boardShadow: boolean; lastResult: { solveId: string; result: SolveResult } | null;
   tokenVersion: number; mergedInto: string|null; mergeState: "pending"|"done"|null; absorbedFrom: string[];
 }
-// Commands: init, registerInstall, setPreferences, setTimezone(≤1/day, never lowers today), setPlan, toggleLike, toggleSave, startSolve,
-// reportProgress({locked}), pauseSolve/resumeSolve, spendForHint({q, kind}) → DomainError("INSUFFICIENT_TOKENS"), finishSolve, spinWheel (one per local day,
-// crypto.getRandomValues over [50,10,0,25,5,15], credited in the same commit), claimCollection, creditPurchase(purchaseId idempotent), bumpTokenVersion, purge,
-// beginMerge/absorb/completeMerge (v2). All take `now` explicitly.
+// Commands: init, registerInstall, setPreferences, setTimezone(≤1/day, never lowers today), setPlan, toggleLike, toggleSave, startSolve (gap-solve-protocol-integrity R2),
+// submitWord (replaces reportProgress; one DO hop per typed word, gap-solve-protocol-integrity R2), pauseSolve/resumeSolve, spendForHint({q, kind, idempotencyKey}) → DomainError("INSUFFICIENT_TOKENS"),
+// finishSolve (gate for POST /finish; inline finish inside submitWord when all questions locked, gap-solve-protocol-integrity R2), spinWheel (one per local day,
+// crypto.getRandomValues over [50,10,0,25,5,15], credited in the same commit), claimCollection, creditPurchase(purchaseId idempotent, gap-wallet-ledger-and-idempotency R3),
+// addPushToken/removePushToken (gap-push-notifications-delivery R2), bumpTokenVersion, purge, beginMerge/absorb/completeMerge (v2).
+// All take `now` explicitly. ledger/idempotency tables live in DO storage, not in UserState (gap-wallet-ledger-and-idempotency R1).
 
 // social/internal/puzzle-stats.do.ts — tiny
 interface PuzzleStatsState { likes: number; solved: number; noHintSolved: number; solvingNow: number; topToday: { day: string; rows: { userId: string; timeMs: number }[] } /* ≤10 asc */ }
@@ -143,18 +149,21 @@ Streak: on finish with `today = dayKey(now, tz)`: same day → unchanged; `prevD
 
 | table | columns (PK **bold**) | indexes |
 |---|---|---|
-| `content_puzzles` | **id** ("en-mini-0001"), lang, kind (mini\|crossword), size, shape (word-square\|standard), title, author_id, author_name, difficulty (EASY\|MEDIUM\|TRICKY), par_sec (300\|600), clue_count, theme_word, reveal_json, cover_style (ink\|accent\|card), kicker, topics_json, content_json (public payload, no answers), content_hash, status (draft\|filled\|clued\|reviewed\|published), drop_date (YYYY-MM-DD or NULL = pool), published_at, created_at, updated_at | `(lang, drop_date)`, `(lang, status, drop_date)` pool pick, `(lang, author_id)` |
+| `content_puzzles` | **id** ("en-mini-0001"), lang, kind (mini\|crossword), size, shape (word-square\|standard), title, author_id, author_name, difficulty (EASY\|MEDIUM\|TRICKY), par_sec (300\|600), clue_count, theme_word, reveal_json, cover_style (ink\|accent\|card), kicker, topics_json, content_json (public payload, no answers), content_hash, status (draft\|filled\|clued\|reviewed\|published), drop_date (YYYY-MM-DD or NULL = pool), published_at, created_at, updated_at | `(lang, drop_date)`, `(lang, status, kind, drop_date)` pool pick (gap-feed-composition-semantics R1), `(lang, author_id)` |
 | `content_puzzle_secrets` | **puzzle_id** FK, solution_json `{ sol, answers: {"1A": …}, decoys }`, updated_at | — (never selected by feed/puzzle routes) |
 | `content_daily_drops` | **(day, lang)**, puzzle_id FK, created_at | `(lang, day DESC)` feed; UNIQUE `(puzzle_id)` |
 | `content_collections` | **id**, lang, shelf (theme\|size\|setter\|archive), name, emoji, blurb, style, reward, unlock_rule ("collection:travel" or NULL), position | `(lang, shelf, position)` |
 | `content_collection_puzzles` | **(collection_id, position)**, puzzle_id FK | `(puzzle_id)` reward check |
 | `content_meta` | **key**, value_json, updated_at (last successful `ensureDrops`, etc.) | — |
-| `player_state` (projection, rebuildable) | **id**, version, tz, lang, level, topics_json, plan_tier, plan_expires_at, tokens, stars, streak, longest_streak, last_solved_day, local_day_ends_at, solved_count, best_time_ms, likes_json, saves_json, push_token_count, merged_into, updated_at | `(local_day_ends_at, last_solved_day)` reminders; `(plan_tier, plan_expires_at)` |
-| `player_solves` (fact rows, `INSERT OR IGNORE`) | **id** = `user_id:puzzle_id`, user_id, puzzle_id, solved_at, day_key, week_key (ISO week), time_ms, hints_used, tokens, stars, suspicious | `(puzzle_id, suspicious, time_ms)`, `(user_id, solved_at DESC)`, `(week_key, user_id)` |
+| `player_state` (projection, rebuildable) | **id**, version, tz, lang, level, topics_json, plan_tier, plan_expires_at, tokens, stars, streak, longest_streak, last_solved_day, utc_offset_min (gap-push-notifications-delivery R2), solved_count, best_time_ms, likes_json, saves_json, push_token_count, notif_status, notif_streak, notif_drop, notif_rival, notif_drop_hour, merged_into, board_shadow, updated_at | `(utc_offset_min, last_solved_day)` reminders (gap-push-notifications-delivery R2); `(plan_tier, plan_expires_at)`; `(user_id, day_key)` stories (gap-feed-composition-semantics R6) |
+| `player_solves` (fact rows, `INSERT OR IGNORE`) | **id** = `user_id:puzzle_id`, user_id, puzzle_id, solved_at, day_key, week_key (ISO week), time_ms, hints_used, tokens, stars, suspicious, board_eligible (gap-solve-protocol-integrity R4), telemetry (typed, locked, swept, wrong, checks, hints, pauses, minGapMs, firstLockMs), flags | `(puzzle_id, board_eligible, time_ms)` (gap-solve-protocol-integrity R4), `(user_id, solved_at DESC)`, `(week_key, user_id)`, `(user_id, day_key)` stories (gap-feed-composition-semantics R6) |
 | `social_puzzle_stats` (projection) | **id** = puzzle id, version, likes, solved, no_hint_solved, solving_now, top_day, top_today_json, updated_at | — |
 | `leaderboard_week` (cron-materialised) | **(week_key, rank)**, user_id, stars, solves | — |
-| `economy_purchases` | **id** (client idempotency key), user_id, kind (tokens\|plan), payload, created_at | `(user_id)` |
-| `notifications_reminders_sent` | **(user_id, day_key)**, sent_at | — |
+| `economy_ledger` (projection from User DO ledger; gap-wallet-ledger-and-idempotency R1) | **user_id**, **seq**, at, kind (tokens\|stars), delta, balance, reason (solve\|no_hint_bonus\|hint\|wheel\|collection\|purchase\|refund\|adjust\|merge), ref, op_key, meta, PRIMARY KEY (user_id, seq) | `(reason, at)` sinks/sources per day |
+| `economy_purchases` (v1: mock only; gap-wallet-ledger-and-idempotency R8) | **id** = "<provider>:<external id>", user_id, provider (mock\|revenuecat\|apple\|stripe), provider_event_id, product_id, pack_id, tokens, price, currency, store, environment (MOCK\|PRODUCTION\|SANDBOX), status (credited\|refunded), ledger_seq, refund_ledger_seq, raw_json, purchased_at, created_at | `(user_id, purchased_at DESC)`; `(provider, provider_event_id)` |
+| `notifications_push_tokens` (projection from User.pushTokens; gap-push-notifications-delivery R2) | **token**, user_id, platform (ios\|android), install_id, updated_at | — |
+| `notifications_sent` (dedupe; gap-push-notifications-delivery R4) | **user_id**, **kind** (streak\|drop\|rival), **day_key**, window_key, status (claimed\|sent\|failed\|skipped), claimed_at, sent_at, ticket_ids (JSON), receipt_checked_at, PRIMARY KEY (user_id, kind, day_key) | `(status, receipt_checked_at, sent_at)` receipts pass (gap-push-notifications-delivery R4) |
+| `attest_keys` (v2 stub) | **key_id**, user_id, install_id, platform, public_key_spki BLOB, counter, env, created_at | — |
 
 Rules: D1 enforces foreign keys, so upserts are `INSERT … ON CONFLICT DO UPDATE` never `INSERT OR REPLACE`; ≤100 bound parameters per statement (23 per puzzle row → one statement per puzzle); `DB.batch` is one transaction; no cross-module JOINs except inside `feed`'s composed query over `content_*`, `social_puzzle_stats`, `player_solves` which is executed through each owner's query function (feed passes the user id and today).
 
@@ -167,13 +176,12 @@ Rules: D1 enforces foreign keys, so upserts are `INSERT … ON CONFLICT DO UPDAT
 | `player.prefsChanged` | `{ userId, lang?, topics?, tz? }` | player | feed cache bust (background) |
 | `solve.started` / `solve.paused` / `solve.resumed` | `{ userId, puzzleId, solveId, at }` | solving | social.presence (`heartbeat`/`leave`, background) |
 | `solve.hintUsed` | `{ userId, solveId, puzzleId, kind, cost, balance }` | solving (after `spendForHint` committed) | analytics (background) |
-| `solve.finished` | `{ userId, puzzleId, solveId, lang, dropDate, solveTimeMs, secLeft, par, hintsUsed, firstSolve, suspicious, tokensEarned, starsEarned, dayKey, streak }` | solving (after `finishSolve` committed) | collections.checkAndClaim (critical) → social.recordSolve (critical) → notifications.cancelReminder (background), analytics (background) |
-| `collections.completed` | `{ userId, collectionId, reward, eventRef }` | collections (after `player.claimCollection` committed the reward) | collections.unlockDependants (critical, emits `collections.unlocked`), notifications (background) |
+| `solve.finished` | `{ userId, puzzleId, solveId, lang, dropDate, solveTimeMs, secLeft, par, hintsUsed, firstSolve, suspicious, tokensEarned, starsEarned, dayKey, streak, streakExtended }` | solving (after `finishSolve` committed; gap-solve-protocol-integrity R2) | collections.checkAndClaim (critical) → social.recordSolve (critical) → notifications.cancelReminder (background), analytics (background) |
+| `collections.completed` | `{ userId, collectionId, reward, eventRef }` | collections (after `player.claimCollection` committed the reward; gap-api-contract-freeze F2) | collections.unlockDependants (critical, emits `collections.unlocked`), notifications (background) |
 | `collections.unlocked` | `{ userId, collectionId }` | collections | feed cache bust (background) |
 | `economy.wheelSpun` | `{ userId, wheelId, prizeIndex, prize, balance }` | economy (after `spinWheel` credited) | analytics (background) |
 | `economy.packPurchased` / `economy.planChanged` | `{ userId, packId\|plan, tokens\|expiresAt, purchaseId, mocked: true }` | economy (after `creditPurchase`/`setPlan`) | analytics (background) |
 | `social.likeToggled` / `social.saveToggled` | `{ userId, puzzleId, liked\|saved }` | social (after `toggleLike/Save` on `User`) | social.adjustLikes on `PuzzleStats` (critical — response needs the count) |
-| `player.streakExtended` | `{ userId, count, dayKey }` | solving (derived from `finishSolve` result) | notifications (background) |
 | `player.merged` (v2) | `{ deviceUserId, accountId }` | identity | leaderboard.rewriteRows (critical) |
 
 Ordering inside `solve.finished` is a behavioural contract covered by a test. Amounts are computed once by the producer and carried in the payload; consumers never recompute economy.
@@ -214,32 +222,34 @@ All under `/v1`, JSON, errors `{ error: { code, message?, issues?, requestId } }
 | GET | `/collections/:id` | device | — | `{ …item, members:[{ n, puzzleId, title, meta, diff, done }] }` | |
 | POST | `/collections/:id/claim` | device | — | `{ claimed, reward, balances }` | re-runs the completeness check; idempotent |
 
-**solving**
+**solving** (gap-solve-protocol-integrity R1–R6, gap-api-contract-freeze R1–R2)
 
 | method | path | auth | request | response | notes |
 |---|---|---|---|---|---|
-| POST | `/puzzles/:id/solves` | device | `{ restart?: boolean }` | `SolveView = { solveId, puzzleId, size, parSec, grid, questions:[{index,dir,num,clue,length,cells}], locked, fixedLetters:[{r,c,ch}], secLeft, running, usedHints, autocheck, balances, status, replay }` | `User.startSolve` (replaces an abandoned session; `replay = puzzleId ∈ completions`); emits `solve.started` |
-| GET | `/solves/:solveId` | device | — | `SolveView` | resume; `fixedLetters` = letters of locked words recomputed from the secret |
-| POST | `/solves/:solveId/words` | device (RL_USER) | `{ questionIndex, word, locked: number[] }` | `{ correct, locked, newlyLocked, fixedLetters, nextQuestionIndex, complete }` | **stateless**: `normalizeWord(lang, word) === answer`, then `sweep()` over the client's locked set; no DO hop |
-| POST | `/solves/:solveId/progress` | device | `{ locked: number[] }` | 204 | `reportProgress` commit; called on pause/exit only (feeds `/me/continue`) |
-| POST | `/solves/:solveId/hints/fifty` | device (RL_SPEND) | `{ questionIndex }` | `{ options:[a,b], balances }` or 402 | `spendForHint(20)` commit, then decoy from `secret.decoys` or the language bank (same length, ≠ any grid answer) |
-| POST | `/solves/:solveId/hints/fifty/pick` | device | `{ questionIndex, word, locked }` | words response | no charge |
-| POST | `/solves/:solveId/hints/letter` | device (RL_SPEND) | `{ questionIndex, filled: string[] }` | `{ cell:[r,c], letter, …words }` or `{ noop:true }` (no charge if word already correct) or 402 | `spendForHint(40)`; first wrong-or-empty cell |
-| POST | `/solves/:solveId/hints/word` | device (RL_SPEND) | `{ questionIndex, locked }` | words response | `spendForHint(100)` |
-| POST | `/solves/:solveId/autocheck` | device | `{ on }` | `{ autocheck }` | free; does not set `usedHints` |
-| POST | `/solves/:solveId/check` | device | `{ cells:[{r,c,ch}] }` | `{ wrongCells:[[r,c]] }` | stateless; only while autocheck is on |
-| POST | `/solves/:solveId/pause` / `/resume` | device | — | `{ secLeft, running }` | server accumulates `pausedMs`; product cap on pauses is an open question |
-| POST | `/solves/:solveId/finish` | device | `{ grid: string[] }` | `SolveResult` (see §3 lifecycle) | 422 `WRONG_GRID`, 409 `NO_ACTIVE_SESSION`; idempotent per `sessionId` |
+| POST | `/puzzles/:id/solves` | device | `{ restart?: boolean }` | `SolveView` (see SolveView schema) | `User.startSolve` (replaces an abandoned session; `replay = puzzleId ∈ completions`); emits `solve.started` |
+| GET | `/solves/:solveId` | device | — | `SolveView` | resume; `letters` = cells of all locked words from server-owned `session.locked` |
+| GET | `/puzzles/:id/solution` | device | — | `{ grid: string[], questions: [...], completion: {...} }` | Review mode; 403 `NOT_COMPLETED` if `completions[id]` not in snapshot (gap-solve-protocol-integrity R5) |
+| POST | `/solves/:solveId/words` | device (RL_USER) | `{ questionIndex, word, locked: number[], lockProof: base64url(HMAC-SHA256(...)) }` | `{ correct, locked, newlyLocked, fixedLetters, complete, …finish fields if complete }` | `User.submitWord` DO command; server-verified `lockProof` unforgeable (gap-api-contract-freeze F1); finishing word inlines finish logic and emits `solve.finished` (gap-solve-protocol-integrity R2) |
+| POST | `/solves/:solveId/progress` | device | `{ locked: number[], autocheck: boolean }` | 204 | `User.reportProgress` commit; called on pause/exit (feeds `/me/continue` via session snapshot) |
+| POST | `/solves/:solveId/hints/fifty` | device (RL_SPEND) | `{ questionIndex }` | `{ options:[a,b], balances }` or 402 `INSUFFICIENT_TOKENS` | `User.spendForHint(20)` DO command; options stored in DO `session.pendingFifty` and replayable (gap-solve-protocol-integrity R2) |
+| POST | `/solves/:solveId/hints/fifty/pick` | device (RL_USER) | `{ questionIndex, word }` | `{ correct, locked, …words response }` | `word` must match one of `pendingFifty.options` or 422 `NOT_AN_OPTION`; counts as a guess if wrong (gap-solve-protocol-integrity R2) |
+| POST | `/solves/:solveId/hints/letter` | device (RL_SPEND) | `{ questionIndex, letters?: string[] }` | `{ cell:[r,c], letter, word?: WordResult, balances }` or `{ word: WordResult, balances }` or 402 | `User.spendForHint(40)` (or no-op if word matches); route-level composition deterministically re-derives content (gap-solve-protocol-integrity R2) |
+| POST | `/solves/:solveId/hints/word` | device (RL_SPEND) | `{ questionIndex, locked: number[] }` | `{ correct, locked, …words response }` | `User.spendForHint(100)` then route-level `submitWord(correct:true)` inline; locks through DO (gap-solve-protocol-integrity R2) |
+| POST | `/solves/:solveId/autocheck` | device (RL_USER) | `{ on: boolean }` | `{ autocheck, ticket?: string, expiresAt?: timestamp, ticketsLeft }` | `User.setAutocheck` DO command; issues/renews HMAC-SHA256 tickets (max 6/solve); 422 `CHECK_BUDGET` after 6 (gap-solve-protocol-integrity R3) |
+| POST | `/solves/:solveId/check` | device (RL_CHECK per solveId) | `{ questionIndex, letters: string[], ticket: string }` | `{ wrongCells:[[r,c]] }` | stateless (no DO hop); ticket verified, cells bounded to one question; 403 `BAD_TICKET` or `AUTOCHECK_OFF` (gap-solve-protocol-integrity R3, gap-api-contract-freeze F4) |
+| POST | `/solves/:solveId/pause` | device (RL_USER) | — | `{ secLeft, running, pauseCount }` | `User.pauseSolve` DO command; commands while paused raise 409 `PAUSED` (gap-solve-protocol-integrity R2) |
+| POST | `/solves/:solveId/resume` | device (RL_USER) | — | `{ secLeft, running, pauseCount }` | `User.resumeSolve` DO command |
+| POST | `/solves/:solveId/finish` | device (RL_USER) | — (no grid body) | `SolveResult` | idempotent per `solveId` via `lastResult` cache in session (gap-api-contract-freeze F6, gap-solve-protocol-integrity R2); 409 `NO_ACTIVE_SESSION` if neither active nor `lastResult` matches |
 
-**economy / wallet / wheel**
+**economy / wallet / wheel** (gap-wallet-ledger-and-idempotency R1–R8, gap-api-contract-freeze R1–R2)
 
 | method | path | auth | request | response | notes |
 |---|---|---|---|---|---|
-| GET | `/wallet` | device | — | `{ balances, packs:[{id,tokens,priceCents,currency,badge}], hintCosts:{fifty:20,letter:40,word:100}, ledger:[{at,delta,kind,reason,ref}] }` | packs 120/$0.99, 550/$3.99 "Popular", 1400/$8.99 "Best value" |
-| POST | `/wallet/purchases` | device (RL_SPEND) | `{ packId, idempotencyKey }` | `{ balances, ledgerEntry }` | v1 mock: `economy_purchases` insert + `creditPurchase` |
-| POST | `/billing/plan` | device | `{ plan: lite\|month\|year, idempotencyKey }` | `{ plan, adsRemoved, expiresAt }` | mock; `setPlan` |
-| GET | `/wheel` | device | — | `{ wheels:[{ wheelId:"<dayKey>:base", canSpin, prize }] }` | one free spin per local day (decision; prototype allowed six per session) |
-| POST | `/wheel/:wheelId/spin` | device (RL_SPEND) | `{ idempotencyKey }` | `{ prizeIndex, prize, prizes:[50,10,0,25,5,15], balances }` | 422 `ALREADY_SPUN`; client animates 3.4 s to the server's index |
+| GET | `/wallet` | device (RL_USER) | — | `{ balances, ledgerSeq, packs:[{id,tokens,priceCents,currency,badge}], hintCosts:{fifty:20,letter:40,word:100}, ledger:[LedgerEntry≤50], ledgerTruncated }` | `User.walletView` DO call; ledger rows are newest first from DO in-object table (capped 1000 rows via checkpoint), D1 `economy_ledger` holds the rest (gap-wallet-ledger-and-idempotency R1, R4) |
+| POST | `/wallet/purchases` | device (RL_SPEND) | `{ packId, idempotencyKey }` | `{ balances, ledgerEntry, purchaseId, replayed }` | `User.creditPurchase` idempotent by `purchaseId`; v1 `purchaseId = "mock:" + idempotencyKey`; D1 `economy_purchases` written by projection (gap-wallet-ledger-and-idempotency R3, R7) |
+| POST | `/billing/plan` | device (RL_SPEND) | `{ plan: lite\|month\|year, idempotencyKey }` | `{ plan, adsRemoved, expiresAt }` | mock; `User.setPlan`; 409 `IDEMPOTENCY_MISMATCH` if key reused with different payload (gap-wallet-ledger-and-idempotency R3) |
+| GET | `/wheel` | device (RL_USER) | — | `{ wheels:[{ wheelId:"<dayKey>:base", canSpin, lastPrize }] }` | one free spin per local day; from `User.wheelView` (projection has `wheel_last_spin_day`, `wheel_last_prize` per gap-feed-composition-semantics R3) |
+| POST | `/wheel/:wheelId/spin` | device (RL_SPEND) | `{ idempotencyKey }` | `{ wheelId, prizeIndex, prize, prizes:[50,10,0,25,5,15], balances, ledgerEntry: null|LedgerEntry, replayed }` | `User.spinWheel` idempotent per `(wheelId, idempotencyKey)`; 409 `ALREADY_SPUN` if same `wheelId` spun today (gap-wallet-ledger-and-idempotency R3); 422 when zero prize (no ledger entry) |
 
 **social**
 
@@ -299,6 +309,61 @@ Test tiers, all inside workerd (~1–2 s startup per file, per-file storage isol
 4. **HTTP end-to-end**: `exports.default.fetch` — bootstrap → token → `/me`; unknown `kid` → 401; refresh accepts ≤30-day-expired tokens; `RL_BOOT` returns 429 after 10 calls; feed first page is today's drop with no cursor duplicates; `/finish` returns the `SolveResult`; cron URL twice is a no-op the second time. Cheap Zod-layer checks via `app.request(path, init, env)`.
 
 Time: every command and event takes `now` explicitly (`vi.useFakeTimers()`/`vi.setSystemTime()` work inside workerd and even inside DO instances, but they do not drive alarms or KV TTLs).
+
+## Gap round (2026-09-02)
+
+Five focused gap documents were synthesized into this document on 2026-09-02:
+
+### gap-solve-protocol-integrity
+
+**Decision: `POST /solves/:solveId/words` becomes the `User.submitWord` DO command with server-verified HMAC `lockProof` to unforgeable `locked` claims.** The finishing word inlines finish logic in the same commit. **Key decisions:**
+- Server-owned `locked` set and full session state machine (status, pausedMs, guesses, checkTickets, hintsUsed, hintLog, pendingFifty, autocheck, lastResult cache)
+- Word checks are DO commands (one hop per word), not stateless routes
+- Autocheck is free to use (stateless, ungated) but tickets are rate-limited by `RL_CHECK` 30/60s and capped at 6/solve
+- Anti-cheat rules: plausibility floor, typing speed floor, audit flags, veteran-or-attested gate for leaderboards
+- Attestation (iOS App Attest + Play Integrity) designed in but not switched on in v1; lazy flow only asks for attestation when a solve would enter top 10
+- [UNVERIFIED] Workers-compatible App Attest library stack needed; Play Integrity quota 10k/day is trivial
+
+### gap-wallet-ledger-and-idempotency
+
+**Decision: wallet ledger lives in DO in-object SQLite tables (not in UserState), D1 `economy_ledger` is a rebuildable projection.** Idempotency keys stored in same DO in a transactional `commitTx` call. **Key decisions:**
+- Ledger checkpoint mechanism keeps 1,000 newest rows in DO; older rows projected to D1 via watermark attachment
+- Idempotency keys: `purchase:<id>` (kept forever), `wheel:<wheelId>:<key>`, `hint:<sessionId>:<key>`, `claim:<collectionId>` (kept 30 days)
+- Invariant verification and repair via `verifyLedger()` and `repairLedger()` (trust ledger or state)
+- Core `Aggregate` needs `commitTx`, `flushAttachments()`, `onFlushed()`, and `Projections.extra()` hooks for atomic side-effect batching
+- Receipts later via RevenueCat webhooks; v1 uses mock with `purchaseId = "mock:" + idempotencyKey`
+
+### gap-api-contract-freeze
+
+**The single normative wire contract.** 22 cross-document contradictions resolved; key ones: **`locked` stays in request body with server HMAC proof, `/check` is stateless and ungated, `collections` owns reward claim (economy has no subscriptions), `PuzzleStats.recordSolve` keyed on puzzle's `dropDate` not user's `dayKey`, `/me` is the snapshot and `/me/profile` is D1-only, finish is idempotent via `lastResult`.**
+- Error envelope unified: `{ error: { code, message?, details?, issues?, requestId } }` with lower-snake-case codes
+- i18n rule: server sends data keys and arguments, never sentences (e.g., `TickerItem`, `Kicker`, `PuzzleMeta` discriminated unions)
+- Keyboards per `lang`: en 26, uk 33, ru 32 (Ё folded to Е)
+- Dependency graph refactored to a DAG after `economy` subscriptions dropped
+- [UNVERIFIED] iOS and Android keyboard layouts; one unverified tech risk item on outbound HTTP/2 to APNs
+
+### gap-feed-composition-semantics
+
+**Feed shape: one drop per `(day, lang)`, kind by weekday (mini Mon–Fri, crossword Sat/Sun), keyset cursor pagination, deterministic per-user-day mystery, first-page caching.** **Key decisions:**
+- Drop kind computed from calendar weekday; editor-scheduled `drop_date` overrides
+- Multi-language: user switches language to see that language's drops, both dailies solvable, rewards granted once per puzzle
+- Pagination via keyset cursor over `(day, lang)`; card ordinals (streak_save, wheel, mystery) are pure functions of ordinal, not page size
+- Mystery selection deterministic via SHA-256 hash, filtered by level band and topic overlap when ≥ 8 candidates
+- Skeleton cache (user-independent drops ⋈ puzzles ⋈ stats) optional at launch; isolate-memory LRU as first upgrade, Edge Cache API only on custom domain
+- Stories: 7 user-local days (today + 6 prior) from `DISTINCT day_key` in `player_solves`
+- [UNVERIFIED] D1 SQLite version — only issue when `EXPLAIN QUERY PLAN` row-value syntax or other features matter
+
+### gap-push-notifications-delivery
+
+**Expo Push API v1, hourly cron over projected tokens in D1, no DO alarms.** Ledger table inside User DO for token track. **Key decisions:**
+- Expo endpoint: 100 messages/request, 600/sec rate limit, receipts checked 15 min after send, `DeviceNotRegistered` → remove token
+- Hourly cron sends streaks-at-risk (20:00 local window), daily-drop pings (configurable hour, default 09:00 local), and rival-overtake (event-driven from leaderboard cron, suppressed 23:00–08:00 local)
+- User's UTC offset stored in projection (`utc_offset_min`) computed from IANA zone via `Intl.DateTimeFormat`, re-evaluated on each flush
+- Dedupe via claim-before-send: `INSERT OR IGNORE notifications_sent (user_id, kind, day_key, ...)`; `meta.changes===0` → another run owns this user-day
+- Copy is message keys (`streak_warning`, `daily_drop`, `rival_overtake`) + args, rendered per `lang` in `packages/shared`; `data` carries key and args for app re-render
+- APNs direct (HTTP/2 + ES256 JWT) viable later; workerd probe confirmed ES256 signing works but outbound HTTP/2 is **[UNVERIFIED]**
+
+---
 
 ## Risks and open questions
 

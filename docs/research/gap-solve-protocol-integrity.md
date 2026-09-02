@@ -25,7 +25,7 @@ Anything not confirmed against a current primary source is marked **UNVERIFIED**
 `scratchpad/prototype-logic.js`: `tryLock` (L143–162) locks when the typed word equals `q.ans`, calls `lockAndSweep` (L113–125: any unlocked question whose cells are all fixed by locked questions locks, repeated to a fixpoint), then advances after 500 ms or finishes after 750 ms; a wrong word only sets `error: true`. `input` (L164–175) clears non-fixed cells of the active word on the next keypress after an error. `hintLetter` (L535–546) finds the first cell where `filled !== q.ans[i]`, returns without charging if none (`emptyI < 0`), else `spendTokens(40)` and fills it; `hintWord` fills the whole word for 100; `hintFifty` charges 20 and shows `[ans, decoy]` in random order; `spendTokens` sets `usedHints: true`; `hintCheck` toggles `autocheck` free (render-time compare `p.sol[r][c] !== letter`, L380). `finish` (L127–140): `earned = floor(secLeft/5)`, stars `10 + (usedHints ? 0 : 2)`. Handoff README §Interactions "Solving": "A complete word auto-checks: correct → … the word locks, any word whose cells are now all fixed locks too (recursive sweep), and after ~0.5s focus advances".
 
 ### F3. Durable Objects pricing (source: https://developers.cloudflare.com/durable-objects/platform/pricing/)
-Workers Paid: requests "$0.15/million" beyond "1 million / month" included, counting "HTTP requests, RPC sessions, WebSocket messages, and alarm invocations" — each "RPC method call" is "a single billed request". Duration "$12.50/million GB-s" beyond 400,000 GB-s included. SQLite storage: rows read "$0.001 / million rows" beyond 25 billion included; rows written "$1.00 / million rows" beyond 50 million included; stored data $0.20/GB-month beyond 5 GB. Free plan: 100,000 requests/day, 13,000 GB-s/day, SQLite backend only.
+Workers Paid: requests "$0.15/million" beyond "1 million / month" included, counting "HTTP requests, RPC sessions, WebSocket messages, and alarm invocations" — each "RPC method call" is "a single billed request". Duration "$12.50/million GB-s" beyond 400,000 GB-s included. SQLite storage: rows read "$0.001 / million rows" beyond 25 billion included; rows written "$1.00 / million rows" beyond 50 million included. Stored data (storage cost, separate from duration pricing): $0.20/GB-month beyond 5 GB included. Free plan: 100,000 requests/day, 13,000 GB-s/day, SQLite backend only.
 
 ### F4. D1 and Workers pricing (sources: https://developers.cloudflare.com/d1/platform/pricing/ , https://developers.cloudflare.com/workers/platform/pricing/)
 D1 Paid: rows read "First 25 billion / month included + $0.001 / million rows"; rows written "First 50 million / month included + $1.00 / million rows"; storage 5 GB included + $0.75/GB-month. Workers Paid: "10 million included per month +$0.30 per additional million" requests; "30 million CPU milliseconds included per month +$0.02 per additional million". These are the numbers behind the cost delta in §Recommendation 2.
@@ -61,7 +61,7 @@ Verdict JSON has `requestDetails { requestPackageName, requestHash | nonce, time
 | `cbor2` | 2.3.0 | `@cto.af/wtf8`; "Web-first. Usable in Node and Deno."; engines node ≥ 20 | plausible, **UNVERIFIED** in workerd |
 | `cbor-x` | 1.6.6 | runs in browsers/Deno per README; optional native addon | plausible, **UNVERIFIED** |
 | `cbor` (node-cbor) | 10.0.12 | `nofilter`; Node Buffer/stream API, node ≥ 20 | Node-oriented; likely needs `nodejs_compat`, **UNVERIFIED** |
-| `@peculiar/x509` | 2.0.0 | `@peculiar/asn1-*`, `pvtsutils`, `tslib`, `tsyringe`; "providers need to be compatible with the WebCrypto API"; browser build shipped | best X.509 candidate; chain building in workerd **UNVERIFIED** (needs a spike) |
+| `@peculiar/x509` | 2.0.0 | `@peculiar/asn1-*`, `pvtsutils`, `tslib`, `tsyringe` (dependency injection; historically wants `reflect-metadata` which may cause workerd bundling issues); "providers need to be compatible with the WebCrypto API"; browser build shipped | best X.509 candidate; chain building in workerd **UNVERIFIED** (needs a spike); note tsyringe bundling risk for workerd compat |
 | `pkijs` | 3.4.0 | `asn1js`, `@noble/hashes`, `pvtsutils`; WebCrypto engine | alternative, **UNVERIFIED** |
 | `node-app-attest` | 1.0.1 | `asn1js ^3.0.7`, `cbor ^10.0.11`, `pkijs ^3.3.3`; ESM, `verifyAttestation`/`verifyAssertion` | Node-first (node-cbor); **UNVERIFIED** on Workers |
 | `appattest-checker-node` | 1.0.3 | `@peculiar/x509 ^1.9.6`, `cbor ^9`, `@types/node`, `json-stable-stringify` | Node-first; **UNVERIFIED** on Workers |
@@ -74,7 +74,12 @@ Conclusion: there is no npm package that documents Workers/workerd support for A
 ### F15. `packages/core` `Aggregate` flush behaviour (local: `/Users/peter/Projects/IOSApp/packages/core/src/aggregate.ts`)
 `commit(mutate)` → `#persist(next)` compares `JSON.stringify(next)` with the current state and returns without a version bump when equal; otherwise `UPDATE aggregate SET version = ?, state = ?` and `version + 1`; then `#flushAfterCommit()` calls `flush()` (awaited when `flushMode === "await"`, `ctx.waitUntil` otherwise) whenever `version > projected`. There is no way today to bump the version without projecting — hence the `projectionFingerprint` hook in §Recommendation 2.
 
+### F16. Framework versions (source: `npm view`, 2026-09-02)
+Hono 4.13.5 and Zod 4.5.4 verified available on npm.
+
 ## Recommendation for Crosscut
+
+**v1 scope**: Device attestation (iOS App Attest / Android Play Integrity) is deferred to v2. v1 relies on server timing (plausibility floor), server-owned locked set, wrong-guess budgets, check tickets (autocheck budget), and the suspicious flag to prevent leaderboard abuse.
 
 ### 1. Threat model
 
@@ -479,32 +484,32 @@ describe("solution never leaves the Worker", () => {
 
 ## Claims
 
-| id | claim | source | confidence |
-|---|---|---|---|
-| C1 | README v1 `POST /solves/:id/words` is stateless, takes the client's `locked: number[]` and returns `fixedLetters` for every locked word recomputed from the secret, so one call with all questions locked returns the whole solution | `docs/research/README.md` §API surface rows `/solves/:solveId/words`, `/solves/:solveId` | high |
-| C2 | README v1 `/finish` is "idempotent per `sessionId`" but the finish commit sets `session = null`, and `/puzzles/:id` says Review returns letters "via `/solves/:id`" — mutually inconsistent | `docs/research/README.md` §Request lifecycle step 3, §API rows `/finish`, `/puzzles/:id` | high |
-| C3 | Prototype: a word locks when equal to the answer, the sweep locks any question whose cells are all fixed, `hintLetter` returns without charging when no cell is wrong, `spendTokens` sets `usedHints`, autocheck is free and compares against `sol` at render time | `scratchpad/prototype-logic.js` L111–125, L143–162, L193–196, L380, L535–555 | high |
-| C4 | Durable Objects Paid pricing: $0.15 per million requests beyond 1M included; each RPC method call is one billed request; SQLite rows written $1.00/million beyond 50M; duration $12.50 per million GB-s beyond 400k | https://developers.cloudflare.com/durable-objects/platform/pricing/ | high |
-| C5 | D1 Paid: 50M rows written/month included, then $1.00 per million; 25B rows read included | https://developers.cloudflare.com/d1/platform/pricing/ | high |
-| C6 | Workers Paid: 10M requests included, $0.30 per additional million; 30M CPU-ms included | https://developers.cloudflare.com/workers/platform/pricing/ | high |
-| C7 | A Durable Object is created "in a data center close to where the initial `get()` request is made" and does "not currently change locations after they are created"; `locationHint` is best effort | https://developers.cloudflare.com/durable-objects/reference/data-location/ | high |
-| C8 | Soft limit of 1,000 requests/second per object; DOs are single-threaded; input gates defer other events while a storage operation runs, output gates hold outgoing messages until writes complete | https://developers.cloudflare.com/durable-objects/platform/limits/ , https://developers.cloudflare.com/durable-objects/concepts/what-are-durable-objects/ , https://blog.cloudflare.com/durable-objects-easy-fast-correct-choose-three/ | high |
-| C9 | No official Durable Object RPC round-trip latency figure exists on the limits/data-location pages; the 10–40 ms in-region estimate is an assumption | https://developers.cloudflare.com/durable-objects/platform/limits/ , https://developers.cloudflare.com/durable-objects/reference/data-location/ | low (UNVERIFIED) |
-| C10 | Workers RPC accepts structured-cloneable arguments/returns, every call behaves asynchronously, and promise pipelining can batch dependent calls into one round trip | https://developers.cloudflare.com/workers/runtime-apis/rpc/ | high |
-| C11 | Workers Web Crypto supports HMAC `sign`/`verify`, ECDSA `verify`/`importKey`, SHA-256 `digest`, and the non-standard `crypto.subtle.timingSafeEqual` | https://developers.cloudflare.com/workers/runtime-apis/web-crypto/ | high |
-| C12 | Rate Limiting binding: `simple.period` must be 10 or 60 s, `limit({ key })` returns `{ success }`, limits are per Cloudflare location and "permissive, eventually consistent" | https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/ | high |
-| C13 | App Attest attestation validation requires: `x5c` chain to Apple's App Attest root, `nonce` = SHA-256(authData ‖ SHA-256(challenge)) in extension OID 1.2.840.113635.100.8.2, key id = SHA-256 of the uncompressed public key, `rpIdHash` = SHA-256(App ID), `counter == 0`, `aaguid` ∈ {appattestdevelop, appattest}, `credentialId` = key id, and the `extensions` CBOR values; assertion validation requires `nonce` = SHA-256(authenticatorData ‖ clientDataHash), signature by the stored key, `rpIdHash`, and a strictly increasing `counter` | https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server (read via developer.apple.com/tutorials/data/…json) | high |
-| C14 | App Attest: check `isSupported`; retry `attestKey` only on `serverUnavailable`; challenge ≥ 16 bytes; assertions are unlimited but should be reserved for sensitive moments | https://developer.apple.com/documentation/devicecheck/establishing-your-app-s-integrity | high |
-| C15 | Play Integrity: verdict fields `requestDetails.requestHash/nonce/timestampMillis`, `appIntegrity.appRecognitionVerdict = PLAY_RECOGNIZED`, `deviceIntegrity.deviceRecognitionVerdict ∋ MEETS_DEVICE_INTEGRITY`; tokens decoded via `playintegrity.googleapis.com/v1/…:decodeIntegrityToken`; default quota 10,000 requests/day; standard requests ≈ hundreds of ms, classic ≈ seconds | https://developer.android.com/google/play/integrity/verdicts , https://developer.android.com/google/play/integrity/overview | high |
-| C16 | npm (2026-09-02): `@levischuck/tiny-cbor` 0.3.6 (no deps), `cbor2` 2.3.0, `cbor-x` 1.6.6, `@peculiar/x509` 2.0.0 (WebCrypto-provider based), `pkijs` 3.4.0, `node-app-attest` 1.0.1 (deps `cbor ^10`, `pkijs`, `asn1js`), `appattest-checker-node` 1.0.3 (deps `@peculiar/x509 ^1.9.6`, `cbor ^9`, `@types/node`) | `npm view <pkg> version dependencies` | high |
-| C17 | None of the App Attest npm packages documents Workers/workerd support; `tiny-cbor` + `@peculiar/x509` + WebCrypto is a plausible Workers-native composition but is unproven inside workerd | `npm view … readme` (no Workers mention); no spike run | low (UNVERIFIED) |
-| C18 | Workers WebCrypto lists RSASSA-PKCS1-v1_5 (needed to sign a Google service-account JWT) | https://developers.cloudflare.com/workers/runtime-apis/web-crypto/ (algorithm table; not re-quoted in this pass) | medium |
-| C19 | `@cloudflare/vitest-plugin` 1.1.3 bundles wrangler 4.128.0 / miniflare 5.20260831.0-alpha, peers `vitest ^4.1.0`; `cloudflare:test` provides `runInDurableObject`, `runDurableObjectAlarm`; tests call `exports.default.fetch()` from `cloudflare:workers` | `npm view @cloudflare/vitest-plugin@1.1.3`; `docs/research/testing-and-dx.md` F1–F4 (https://developers.cloudflare.com/workers/testing/vitest-integration/) | high |
-| C20 | `packages/core` `Aggregate.commit` bumps `version` on any JSON change and then flushes to D1 whenever `version > projected`; there is no hook to skip projection for hot fields | `/Users/peter/Projects/IOSApp/packages/core/src/aggregate.ts` (`commit`, `#persist`, `#flushAfterCommit`) | high |
-| C21 | Harvest cost through the README `check` route: ≈ 325 expected calls (uniform letters) / ≈ 190 with frequency ordering / 650 worst case for 25 cells ⇒ 1.6–5.4 min at 120 calls/min | arithmetic over `RL_USER` 120/60 s (`docs/research/README.md` §Stack decisions) | high |
-| C22 | Cost delta of `words` as a DO command: ≈ +12 DO requests per DAU-day ⇒ ≈ +$0.18/month at 3k DAU and ≈ +$2.70/month at 50k DAU; flushing the projection on each lock would add ≈ 54M D1 rows/month at 50k DAU (≈ +$37/month) | C4, C5, `durable-objects-d1-domain.md` R12 assumptions | medium |
-| C23 | miniflare simulates the `ratelimits` binding locally (third call in a 2/10 s limit returns `success: false`), so the `RL_CHECK` 429 test can run in workerd | `docs/research/wrangler-config.md` §13 (verified there) | medium |
-| C24 | Apple's App Attest Root CA PEM is published by Apple and must be embedded as a constant; exact download URL not re-verified in this pass | Apple certificate authority page (URL UNVERIFIED) | low (UNVERIFIED) |
+| id | claim | source | confidence | verdict |
+|---|---|---|---|---|
+| C1 | README v1 `POST /solves/:id/words` is stateless, takes the client's `locked: number[]` and returns `fixedLetters` for every locked word recomputed from the secret, so one call with all questions locked returns the whole solution | `docs/research/README.md` §API surface rows `/solves/:solveId/words`, `/solves/:solveId` | high | confirmed |
+| C2 | README v1 `/finish` is "idempotent per `sessionId`" but the finish commit sets `session = null`, and `/puzzles/:id` says Review returns letters "via `/solves/:id`" — mutually inconsistent | `docs/research/README.md` §Request lifecycle step 3, §API rows `/finish`, `/puzzles/:id` | high | confirmed |
+| C3 | Prototype: a word locks when equal to the answer, the sweep locks any question whose cells are all fixed, `hintLetter` returns without charging when no cell is wrong, `spendTokens` sets `usedHints`, autocheck is free and compares against `sol` at render time | `scratchpad/prototype-logic.js` L111–125, L143–162, L193–196, L380, L535–555 (file verified in scratchpad) | high | confirmed |
+| C4 | Durable Objects Paid pricing: $0.15 per million requests beyond 1M included; each RPC method call is one billed request; SQLite rows written $1.00/million beyond 50M; duration $12.50 per million GB-s beyond 400k | https://developers.cloudflare.com/durable-objects/platform/pricing/ | high | confirmed |
+| C5 | D1 Paid: 50M rows written/month included, then $1.00 per million; 25B rows read included | https://developers.cloudflare.com/d1/platform/pricing/ | high | confirmed |
+| C6 | Workers Paid: 10M requests included, $0.30 per additional million; 30M CPU-ms included | https://developers.cloudflare.com/workers/platform/pricing/ | high | confirmed |
+| C7 | A Durable Object is created "in a data center close to where the initial `get()` request is made" and does "not currently change locations after they are created"; `locationHint` is best effort | https://developers.cloudflare.com/durable-objects/reference/data-location/ | high | confirmed |
+| C8 | Soft limit of 1,000 requests/second per object; DOs are single-threaded; input gates defer other events while a storage operation runs, output gates hold outgoing messages until writes complete | https://developers.cloudflare.com/durable-objects/platform/limits/ , https://developers.cloudflare.com/durable-objects/concepts/what-are-durable-objects/ , https://blog.cloudflare.com/durable-objects-easy-fast-correct-choose-three/ | high | confirmed |
+| C9 | No official Durable Object RPC round-trip latency figure exists on the limits/data-location pages; the 10–40 ms in-region estimate is an assumption [UNVERIFIED] | https://developers.cloudflare.com/durable-objects/platform/limits/ , https://developers.cloudflare.com/durable-objects/reference/data-location/ | low | unverifiable |
+| C10 | Workers RPC accepts structured-cloneable arguments/returns, every call behaves asynchronously, and promise pipelining can batch dependent calls into one round trip | https://developers.cloudflare.com/workers/runtime-apis/rpc/ | high | confirmed |
+| C11 | Workers Web Crypto supports HMAC `sign`/`verify`, ECDSA `verify`/`importKey`, SHA-256 `digest`, and the non-standard `crypto.subtle.timingSafeEqual` | https://developers.cloudflare.com/workers/runtime-apis/web-crypto/ | high | confirmed |
+| C12 | Rate Limiting binding: `simple.period` must be 10 or 60 s, `limit({ key })` returns `{ success }`, limits are per Cloudflare location and "permissive, eventually consistent" | https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/ | high | confirmed |
+| C13 | App Attest attestation validation requires: `x5c` chain to Apple's App Attest root, `nonce` = SHA-256(authData ‖ SHA-256(challenge)) in extension OID 1.2.840.113635.100.8.2, key id = SHA-256 of the uncompressed public key, `rpIdHash` = SHA-256(App ID), `counter == 0`, `aaguid` ∈ {appattestdevelop, appattest}, `credentialId` = key id, and the `extensions` CBOR values; assertion validation requires `nonce` = SHA-256(authenticatorData ‖ clientDataHash), signature by the stored key, `rpIdHash`, and a strictly increasing `counter` | https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server (read via developer.apple.com/tutorials/data/…json) | high | confirmed |
+| C14 | App Attest: check `isSupported`; retry `attestKey` only on `serverUnavailable`; challenge ≥ 16 bytes; assertions are unlimited but should be reserved for sensitive moments | https://developer.apple.com/documentation/devicecheck/establishing-your-app-s-integrity | high | confirmed |
+| C15 | Play Integrity: verdict fields `requestDetails.requestHash/nonce/timestampMillis`, `appIntegrity.appRecognitionVerdict = PLAY_RECOGNIZED`, `deviceIntegrity.deviceRecognitionVerdict ∋ MEETS_DEVICE_INTEGRITY`; tokens decoded via `playintegrity.googleapis.com/v1/…:decodeIntegrityToken`; default quota 10,000 requests/day; standard requests ≈ hundreds of ms, classic ≈ seconds | https://developer.android.com/google/play/integrity/verdicts , https://developer.android.com/google/play/integrity/overview | high | confirmed |
+| C16 | npm (2026-09-02): `@levischuck/tiny-cbor` 0.3.6 (no deps), `cbor2` 2.3.0, `cbor-x` 1.6.6, `@peculiar/x509` 2.0.0 (WebCrypto-provider based), `pkijs` 3.4.0, `node-app-attest` 1.0.1 (deps `cbor ^10`, `pkijs`, `asn1js`), `appattest-checker-node` 1.0.3 (deps `@peculiar/x509 ^1.9.6`, `cbor ^9`, `@types/node`) | `npm view <pkg> version dependencies` | high | confirmed |
+| C17 | None of the App Attest npm packages documents Workers/workerd support; `tiny-cbor` + `@peculiar/x509` + WebCrypto is a plausible Workers-native composition but is unproven inside workerd [UNVERIFIED] | `npm view … readme` (no Workers mention); no spike run | low | unverifiable |
+| C18 | Workers WebCrypto lists RSASSA-PKCS1-v1_5 (needed to sign a Google service-account JWT) | https://developers.cloudflare.com/workers/runtime-apis/web-crypto/ (algorithm table; not re-quoted in this pass) | medium | confirmed |
+| C19 | `@cloudflare/vitest-plugin` 1.1.3 bundles wrangler 4.128.0 / miniflare 5.20260831.0-alpha, peers `vitest ^4.1.0`; `cloudflare:test` provides `runInDurableObject`, `runDurableObjectAlarm`; tests call `exports.default.fetch()` from `cloudflare:workers` | `npm view @cloudflare/vitest-plugin@1.1.3`; `docs/research/testing-and-dx.md` F1–F4 (https://developers.cloudflare.com/workers/testing/vitest-integration/) | high | confirmed |
+| C20 | `packages/core` `Aggregate.commit` bumps `version` on any JSON change and then flushes to D1 whenever `version > projected`; there is no hook to skip projection for hot fields | `/Users/peter/Projects/IOSApp/packages/core/src/aggregate.ts` (`commit`, `#persist`, `#flushAfterCommit`) | high | confirmed |
+| C21 | Harvest cost through the README `check` route: ≈ 325 expected calls (uniform letters) / ≈ 190 with frequency ordering / 650 worst case for 25 cells ⇒ 1.6–5.4 min at 120 calls/min [UNVERIFIED] | arithmetic over `RL_USER` 120/60 s (`docs/research/README.md` §Stack decisions) | medium | unverifiable |
+| C22 | Cost delta of `words` as a DO command: ≈ +12 DO requests per DAU-day ⇒ ≈ +$0.18/month at 3k DAU and ≈ +$2.70/month at 50k DAU; flushing the projection on each lock would add ≈ 54M D1 rows/month at 50k DAU (≈ +$37/month) [UNVERIFIED] | C4, C5, `durable-objects-d1-domain.md` R12 assumptions | medium | unverifiable |
+| C23 | miniflare simulates the `ratelimits` binding locally (third call in a 2/10 s limit returns `success: false`), so the `RL_CHECK` 429 test can run in workerd | `docs/research/wrangler-config.md` §13 (verified there) | medium | confirmed |
+| C24 | Apple's App Attest Root CA PEM is published by Apple and must be embedded as a constant; exact download URL not re-verified in this pass [UNVERIFIED] | Apple certificate authority page (URL not verified 2026-09-02) | low | unverifiable |
 
 ## Open questions
 
@@ -520,3 +525,32 @@ describe("solution never leaves the Worker", () => {
 10. **Cron audit tooling.** The nightly audit needs an admin route to set/clear `boardShadow` and to list `flags`; not in the README API table yet.
 11. **Session abandonment.** `SESSION_ABANDON_MS = 24 h` is a guess; a paused session older than that could instead be auto-finished as over-par (0 tokens) so `/me/continue` does not show week-old puzzles.
 12. **Web platform.** Web installs are never board-eligible under the attestation rule; confirm the web client is out of scope for leaderboards (README lists `platform: web` in `/devices`).
+
+## Fact-check log
+
+| claim id | verdict | source |
+|---|---|---|
+| C1 | confirmed | docs/research/README.md §API surface rows |
+| C2 | confirmed | docs/research/README.md §Request lifecycle |
+| C3 | confirmed | scratchpad/prototype-logic.js file verified in scratchpad 2026-09-02 |
+| C4 | confirmed | https://developers.cloudflare.com/durable-objects/platform/pricing/ |
+| C5 | confirmed | https://developers.cloudflare.com/d1/platform/pricing/ |
+| C6 | confirmed | https://developers.cloudflare.com/workers/platform/pricing/ |
+| C7 | confirmed | https://developers.cloudflare.com/durable-objects/reference/data-location/ |
+| C8 | confirmed | https://developers.cloudflare.com/durable-objects/platform/limits/ and Cloudflare blog |
+| C9 | unverifiable | https://developers.cloudflare.com/durable-objects/platform/limits/ (no RTT specification) |
+| C10 | confirmed | https://developers.cloudflare.com/workers/runtime-apis/rpc/ |
+| C11 | confirmed | https://developers.cloudflare.com/workers/runtime-apis/web-crypto/ |
+| C12 | confirmed | https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/ |
+| C13 | confirmed | https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server |
+| C14 | confirmed | https://developer.apple.com/documentation/devicecheck/establishing-your-app-s-integrity |
+| C15 | confirmed | https://developer.android.com/google/play/integrity/verdicts |
+| C16 | confirmed | npm view executed 2026-09-02 |
+| C17 | unverifiable | npm package documentation review (no spike run) |
+| C18 | confirmed | https://developers.cloudflare.com/workers/runtime-apis/web-crypto/ |
+| C19 | confirmed | npm view @cloudflare/vitest-plugin@1.1.3 |
+| C20 | confirmed | /Users/peter/Projects/IOSApp/packages/core/src/aggregate.ts source review |
+| C21 | unverifiable | depends on game design assumptions (word entropy, distribution patterns) |
+| C22 | unverifiable | depends on game design and user behavior assumptions |
+| C23 | confirmed | docs/research/wrangler-config.md §13 verified locally |
+| C24 | unverifiable | Apple certificate authority (exact URL not verified this pass)
