@@ -51,7 +51,7 @@
 | `player_state` | `player` | `0002_player.sql` | Projection: user preferences, plan, wallet, streak, solves count, best time, merged state |
 | `player_solves` | `player` | `0002_player.sql` | Fact rows (user + puzzle completions): time, hints used, tokens/stars earned, suspicious flag, board eligibility |
 | `social_puzzle_stats` | `social` | `0003_social.sql` | Projection: like count, solve count, no-hint solve count, solving-now count, top 10 today |
-| `leaderboard_week` | `leaderboard` | `0003_social.sql` | Cron-materialised: weekly top solvers (stars-based ranking) |
+| `leaderboard_week` | `leaderboard` | `0006_leaderboard.sql` | Cron-materialised: weekly top solvers (stars-based ranking) |
 | `economy_ledger` | `economy` | `0004_economy.sql` | Projection: ledger entries from User DO (tokens earned/spent), fed by `player` projection's `extra()` |
 | `economy_purchases` | `economy` | `0004_economy.sql` | Purchase ledger (token packs, plans) with client idempotency keys |
 | `notifications_reminders_sent` | `notifications` | `0005_notifications.sql` | Dedupe table: reminders already sent (user + day) |
@@ -196,9 +196,10 @@ workers/gateway/
   migrations/
     0001_content.sql                                [content_* tables]
     0002_player.sql                                 [player_* tables]
-    0003_social.sql                                 [social_*, leaderboard_* tables]
+    0003_social.sql                                 [social_* tables]
     0004_economy.sql                                [economy_* tables]
     0005_notifications.sql                          [notifications_* tables]
+    0006_leaderboard.sql                            [leaderboard_* tables]
   
   seed/
     0001_content.sql                                [seed script: four prototype puzzles + collections]

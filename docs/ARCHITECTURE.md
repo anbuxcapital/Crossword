@@ -1249,9 +1249,9 @@ CREATE INDEX solves_user_puzzle ON player_solves (user_id, puzzle_id);          
 
 ---
 
-### 0003_social.sql
+### 0003_social.sql (social module only)
 
-Puzzle counters (projections) and leaderboards (cron-materialized).
+Puzzle counters (projections): likes, solves, presence, top-10-today.
 
 ```sql
 CREATE TABLE social_puzzle_stats (
@@ -1265,16 +1265,6 @@ CREATE TABLE social_puzzle_stats (
   top_today_json    TEXT NOT NULL DEFAULT '[]',   -- [{userId, timeMs}, ...] sorted asc, max 10 (excludes suspicious)
   updated_at        INTEGER NOT NULL
 );
-
-CREATE TABLE leaderboard_week (
-  week_key          TEXT NOT NULL,                -- ISO week "2026-W36" (user-local)
-  rank              INTEGER NOT NULL,             -- 1-indexed
-  user_id           TEXT NOT NULL,
-  stars             INTEGER NOT NULL,             -- SUM(stars) from player_solves WHERE week_key=? AND NOT suspicious
-  solves            INTEGER NOT NULL,             -- COUNT(*) from player_solves WHERE week_key=? AND NOT suspicious
-  PRIMARY KEY (week_key, rank)
-);
-CREATE INDEX leaderboard_week_user ON leaderboard_week (week_key, user_id);        -- lookup current rank
 ```
 
 ---
@@ -1320,6 +1310,24 @@ CREATE TABLE economy_purchases (
 );
 CREATE INDEX economy_purchases_user ON economy_purchases (user_id, purchased_at DESC);
 CREATE INDEX economy_purchases_event ON economy_purchases (provider, provider_event_id);  -- webhook dedup
+```
+
+---
+
+### 0006_leaderboard.sql (leaderboard module only)
+
+Cron-materialized weekly leaderboard, derived from `player_solves` (never updated row-by-row).
+
+```sql
+CREATE TABLE leaderboard_week (
+  week_key          TEXT NOT NULL,                -- ISO week "2026-W36" (user-local)
+  rank              INTEGER NOT NULL,             -- 1-indexed
+  user_id           TEXT NOT NULL,
+  stars             INTEGER NOT NULL,             -- SUM(stars) from player_solves WHERE week_key=? AND NOT suspicious
+  solves            INTEGER NOT NULL,             -- COUNT(*) from player_solves WHERE week_key=? AND NOT suspicious
+  PRIMARY KEY (week_key, rank)
+);
+CREATE INDEX leaderboard_week_user ON leaderboard_week (week_key, user_id);        -- lookup current rank
 ```
 
 ---
@@ -2231,9 +2239,10 @@ workers/gateway/
   migrations/
     0001_content.sql                                [content_* table schemas]
     0002_player.sql                                 [player_* table schemas]
-    0003_social.sql                                 [social_*, leaderboard_* table schemas]
+    0003_social.sql                                 [social_* table schemas]
     0004_economy.sql                                [economy_* table schemas]
     0005_notifications.sql                          [notifications_* table schemas]
+    0006_leaderboard.sql                             [leaderboard_* table schemas]
   
   seed/
     0001_content.sql                                [four prototype puzzles + collections; INSERT OR IGNORE per row]
