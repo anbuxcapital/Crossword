@@ -1,0 +1,16 @@
+// Test-only Worker: hosts the Counter aggregate and the Projections entrypoint together.
+// No service binding: the aggregate reaches Projections through the loopback `ctx.exports`
+// (the single-Worker monolith shape). Multi-Worker setups bind PROJECTIONS explicitly instead.
+{
+  "name": "core-test",
+  "main": "./fixtures/worker.ts",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["enable_ctx_exports"],
+  "durable_objects": {
+    "bindings": [{ "name": "COUNTER", "class_name": "Counter" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Counter"] }],
+  "d1_databases": [
+    { "binding": "DB", "database_name": "core-test", "database_id": "00000000-0000-0000-0000-000000000000" }
+  ]
+}
