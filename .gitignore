@@ -8,3 +8,7 @@ worker-configuration.d.ts.bak
 coverage/
 .turbo/
 *.log
+
+# Obsidian working state inside docs/ (the notes themselves are versioned)
+docs/.trash/
+docs/.obsidian/
