@@ -400,3 +400,7 @@ Five focused gap documents were synthesized into this document on 2026-09-02:
 | **M5 Leaderboard, notifications stub, reconcile** | `*/5` cron → `leaderboard_week`; `/puzzles/:id/leaderboard`; reminders cron + `notifications_reminders_sent`; `POST /me/reconcile`; observability polish | Board excludes `suspicious`; cron re-run idempotent; killing fan-out mid-request and reconciling restores `PuzzleStats` and claims |
 | **M6 Client contract + deploy** | `tsc --emitDeclarationOnly` for `AppType`, `packages/api-client` (`hcWithType`), first `wrangler deploy --env production` (D1 create, secrets, content import), Free-plan checks (U1, U3) | Expo app compiles against the `.d.ts`; production smoke: bootstrap, feed, solve; UPSERT verified in production |
 | **Later** | Better Auth + linking/merge, RevenueCat/Stripe webhooks, outbox/alarm redelivery, OpenAPI via `hono-openapi`, module extraction via `WorkerEntrypoint` + `services`, App Attest | — |
+
+## Related research outside the backend report
+
+- [Metrics for Crosscut as an ad-supported game](ad-app-metrics.md) — 52 metrics with the decision each changes, its scope and window, and its home (AdMob, analytics, or the console); a 13-metric first-version list; pitfalls.
