@@ -10,7 +10,7 @@ This document is the **single normative contract** for the Crosscut backend (one
 - `docs/research/hono-best-practices.md` F3/F4/F6 + Recommendation 4–5 (**HONO**)
 - `docs/research/zod4-usage.md` F3/F10 + Recommendation 5–10, Q5 (**ZOD**)
 - `docs/research/in-process-event-bus.md` R2/R3 (**BUS**), `docs/research/identity-auth-v1.md` §Endpoints/§Middleware behaviour (**AUTH**), `docs/research/crossword-content-pipeline.md` F3 (**CONTENT**), `docs/research/modular-monolith-principles.md` S7 (**MMP**)
-- The design handoff README screens 1–15: `/Users/peter/Projects/IOS Crosswords/Crosswords app with feed/design_handoff_crosscut_feed/README.md` (**HANDOFF**) and the prototype logic `/private/tmp/claude-501/-Users-peter-Projects-IOS-Crosswords/9d054732-b7c8-4939-80a1-8eb9aba21fda/scratchpad/prototype-logic.js` (**PROTO**)
+- The design handoff README screens 1–15: [Design handoff](../../design/user-app/design_handoff_crosscut_feed/README.md) (**HANDOFF**) and the prototype logic `/private/tmp/claude-501/-Users-peter-Projects-IOS-Crosswords/9d054732-b7c8-4939-80a1-8eb9aba21fda/scratchpad/prototype-logic.js` (**PROTO**, historical extraction)
 
 Primary sources checked on 2026-09-02: https://hono.dev/docs/guides/validation , https://hono.dev/docs/guides/rpc , https://zod.dev/api , https://zod.dev/error-formatting , https://github.com/honojs/middleware/tree/main/packages/zod-validator , plus `npm view` (`hono` 4.13.5, `zod` 4.5.4, `@hono/zod-validator` 0.9.1 with peers `zod ^3.25.0 || ^4.0.0`, `hono >=4.11.2`).
 

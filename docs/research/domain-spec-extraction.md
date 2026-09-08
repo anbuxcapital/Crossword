@@ -4,7 +4,7 @@ Slug: `domain-spec-extraction` · Date: 2026-09-02 · Method: local-file extract
 
 Sources read completely:
 
-- `README` = `/Users/peter/Projects/IOS Crosswords/Crosswords app with feed/design_handoff_crosscut_feed/README.md` (326 lines; fact-check `wc -l` 2026-09-02 — an earlier draft said 327)
+- `README` = [Design handoff](../../design/user-app/design_handoff_crosscut_feed/README.md) (326 lines in the historical 2026-09-02 snapshot; line references below describe that snapshot)
 - `PROTO` = `/private/tmp/claude-501/-Users-peter-Projects-IOS-Crosswords/9d054732-b7c8-4939-80a1-8eb9aba21fda/scratchpad/prototype-logic.js` (570 lines per `wc -l` on 2026-09-02 — an earlier draft said 571; all line references below were re-checked and hold, the `Component extends DCLogic` class extracted from `Crosscut Prototype.dc.html`)
 - `CONCEPTS` = `/Users/peter/Projects/IOS Crosswords/IOSApp concepts/concepts.md`, `CORE` = `/Users/peter/Projects/IOS Crosswords/IOSApp concepts/core-package.md`, and `/Users/peter/Projects/IOSApp/packages/core/src/aggregate.ts` (the base class the implementation copies in)
 - Verification script: `/private/tmp/claude-501/-Users-peter-Projects-IOS-Crosswords/9d054732-b7c8-4939-80a1-8eb9aba21fda/scratchpad/verify.mjs` (re-ran the prototype's `questions()` / `lockAndSweep()` against all four puzzles)

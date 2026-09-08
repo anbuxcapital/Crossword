@@ -531,7 +531,7 @@ describe("feed pagination", () => {
 | C16 | confirmed | Local Node 26.8.1 verification confirms 456187629; https://developers.cloudflare.com/workers/runtime-apis/web-crypto/ |
 | C17 | confirmed | Local Node verification confirms dates; https://developers.cloudflare.com/workers/runtime-apis/web-standards/ |
 | C18 | confirmed | https://developers.cloudflare.com/d1/sql-api/query-json/ |
-| C19 | confirmed | /Users/peter/Projects/IOS Crosswords/Crosswords app with feed/design_handoff_crosscut_feed/README.md §Domain model/§D1 schema |
+| C19 | confirmed | [Design handoff](../../design/user-app/design_handoff_crosscut_feed/README.md) §Domain model/§D1 schema |
 | C20 | confirmed | /private/tmp/claude-501/-Users-peter-Projects-IOS-Crosswords/9d054732-b7c8-4939-80a1-8eb9aba21fda/scratchpad/prototype-logic.js L309-326 and L262-270 |
 | C21 | unverifiable | github.com/cloudflare/workers-sdk/issues/9040 (third-party, not official documentation) |
 | C22 | unverifiable | Not addressed in gap-feed-composition-semantics.md |

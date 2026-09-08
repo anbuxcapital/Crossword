@@ -6,7 +6,7 @@ Fact-checked 2026-09-02: two claims corrected (C17, C22), nine editorial problem
 
 Local sources read completely:
 
-- `README` = `/Users/peter/Projects/IOS Crosswords/Crosswords app with feed/design_handoff_crosscut_feed/README.md`
+- `README` = [Design handoff](../../design/user-app/design_handoff_crosscut_feed/README.md)
 - `PROTO` = `/private/tmp/claude-501/-Users-peter-Projects-IOS-Crosswords/9d054732-b7c8-4939-80a1-8eb9aba21fda/scratchpad/prototype-logic.js` (the four inline puzzles at L20-53, `questions()` at L75-80)
 - `/Users/peter/Projects/IOS Crosswords/IOSApp concepts/concepts.md`, `core-package.md`, and `/Users/peter/Projects/IOSApp/packages/core/src/*.ts`
 - Sibling research already written today: `docs/research/domain-spec-extraction.md` (F2/F3 puzzle format), `docs/research/durable-objects-d1-domain.md` (`puzzles` / `puzzle_secrets` / `daily_drops` DDL, R7 daily-drop cron), `docs/research/workers-modular-monolith.md` (module layout). This document stays consistent with those and goes deeper on content only.
