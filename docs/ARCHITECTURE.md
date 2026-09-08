@@ -3,7 +3,10 @@
 Date: 2026-09-02 · Status: v1 design, assembled from per-section drafts and a consistency pass
 Inputs: docs/research/README.md (fact-checked research), docs/research/gap-*.md, docs/design/glossary.md (canonical names), the design handoff README, packages/core.
 Scope: backend only (one Cloudflare Worker, modular monolith, in-process domain events, Hono + Zod + Durable Objects + D1). The Expo app is out of scope.
-Work breakdown lives in docs/IMPLEMENTATION-PLAN.md (§10).
+Work breakdown lives in docs/IMPLEMENTATION-PLAN.md (§10). For the current AI-assisted learning
+sequence, see [CLOUDFLARE-LEARNING-PLAN.md](CLOUDFLARE-LEARNING-PLAN.md). This document remains
+the v1 baseline; Daily Five / Feed v2 contract amendments are pending
+[ARC-01](https://app.clickup.com/t/869ew47ax). Do not treat the older feed contract as the latest design.
 
 ## 0. Decisions
 
@@ -11,8 +14,8 @@ Crosscut v1 is a single Cloudflare Worker (`workers/gateway`), deployed with one
 
 | decision | choice | why | alternatives rejected |
 |---|---|---|---|
-| Deployment topology | One Worker `workers/gateway` (name `crosscut`, main `src/app/index.ts`) exporting `{ fetch, scheduled }`, three DO classes (`User`, `PuzzleStats`, `Projections`), one D1 database | Service bindings / RPC zero-latency in-account; nothing in v1 needs a split; `resolveModules(env, ctx)` seam allows future extraction | Multiple Workers (split by domain layer); separate identity/payment Workers |
-| Config file | `wrangler.jsonc` with `"$schema": "node_modules/wrangler/config-schema.json"` + JSONC comments for ops | Cloudflare recommends JSONC; community best practice; schema validation in IDEs | TOML (Wrangler no longer supports it) |
+| Deployment topology | One Worker `workers/gateway` (name `crosscut`, main `src/app/index.ts`) exporting `{ fetch, scheduled }`, two DO classes (`User`, `PuzzleStats`), the `Projections` WorkerEntrypoint (extends `ProjectionsBase` in `packages/core`), one D1 database | Service bindings / RPC zero-latency in-account; nothing in v1 needs a split; `resolveModules(env, ctx)` seam allows future extraction | Multiple Workers (split by domain layer); separate identity/payment Workers |
+| Config file | `wrangler.jsonc` with `"$schema": "node_modules/wrangler/config-schema.json"` + JSONC comments for ops | Cloudflare recommends JSONC; community best practice; schema validation in IDEs | TOML (still supported; JSONC is preferred for new projects per [Wrangler configuration](https://developers.cloudflare.com/workers/wrangler/configuration/), checked 2026-09-07) |
 | Compatibility date and flags | `"2026-09-02"`, **no `compatibility_flags`** | Verified in wrangler 4.128.0 dev; `nodejs_compat` default from 2026-08-04; `enable_ctx_exports` from 2025-11-17; both unnecessary and they cause warnings | Listing flags that are already defaults |
 | DO class declaration | Declarative `"exports": { "User": { "type": "durable-object", "storage": "sqlite" }, "PuzzleStats": {…} }` + `durable_objects.bindings` in `wrangler.jsonc` | Wrangler docs prefer `exports` for new Workers since 4.107; `migrations` and `exports` are mutually exclusive; one-way door; supported by vitest-plugin 1.1.3 | Legacy `migration()` pattern (incompatible with exports) |
 | Storage split | D1: content, projections, fact tables (player_solves), cron-materialised leaderboards; DO: per-user aggregate (User), per-puzzle aggregate (PuzzleStats), ledger table (in User) | Hot reads never hit a DO; commands serialized by input gates per user (no race on lock/debit/finish); ledger in-object via `transactionSync` keeps the wallet atomic | All storage in D1 (no strongly-consistent wallet); all in DO (query latency, 10 GB per object limit) |
@@ -3263,4 +3266,3 @@ v1 defaults chosen (from research/* open-question sections):
 - [ ] **M1:** Timezone validation (Intl.DateTimeFormat integration test for Kyiv/Kiev and all distinct timezones the client can send, comparing formatted keys not zone names, per R4); zod 4.5.4 on physical Hermes device test (R8); confirm keyboard layout final spec for Cyrillic before content import (R10).
 - [ ] **M2:** iOS Keychain restore test on real device after iCloud restore (R9); key rotation rollover test in staging (R14); cron idempotency test under duplication scenarios (R17); snapshot size guard and alarm retry integration (R13).
 - [ ] **Continuous:** Monitor PuzzleStats lock hold times via observability; alert on p99 latency > 1 s (R7); watch for clock skew > ±5 min between Worker and client (R12); track pool depth alerting on < 14 days ahead (R15).
-

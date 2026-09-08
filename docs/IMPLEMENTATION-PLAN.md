@@ -1,10 +1,40 @@
 # Implementation plan
 
-Source of truth: `docs/ARCHITECTURE.md` (v1 design, final). Canonical names: `docs/design/glossary.md`. This
-plan sequences and partitions file ownership only — it makes no design decisions. Every work package (WP) is
-handed to a coding agent with **only** `ARCHITECTURE.md` + `glossary.md` + its own WP section. Agents must
-never read another WP's section, never guess names not in the glossary, and never touch a file outside their
-"Creates/edits (exclusive)" list.
+Source of truth: `docs/ARCHITECTURE.md` (v1 baseline; Daily Five / Feed v2 amendments pending
+[ARC-01](https://app.clickup.com/t/869ew47ax)). Canonical names: `docs/design/glossary.md`.
+This plan partitions implementation ownership; it does not decide unresolved product contracts.
+
+## Current execution agreement — 2026-09-07
+
+Use [CLOUDFLARE-LEARNING-PLAN.md](CLOUDFLARE-LEARNING-PLAN.md) for the sequence of small,
+usable features and Peter's learning loop. AI implements the code; Peter develops understanding
+through decisions, request tracing, review, and operating the result. The WP sections below
+remain a scope inventory, not a requirement to finish all infrastructure before a playable game.
+
+These rules override conflicting execution or acceptance instructions in the older WP briefs:
+
+- **No new tests or test scripts unless Peter explicitly asks.** Run appropriate existing suites
+  and build/type checks; demonstrate behavior interactively. Older test-authoring lists are not
+  authorization to create them. Existing test-double compilation fixes are allowed.
+- Read this agreement, the learning plan, architecture, glossary, relevant WP sections, and current
+  code. Read-only cross-module tracing is allowed. Preserve exclusive write ownership and the
+  architecture's import boundaries; never guess a missing contract name.
+- Work on one feature slice at a time. Implement only the shared schemas and core extensions its
+  consumers need; record remaining WP scope explicitly rather than marking a partial WP complete.
+- **WP-13 integrates each slice from the beginning.** Its all-module dependency applies to final
+  assembly only. The integration owner wires real routes, exports, and required handlers as their
+  implementations land. WP-0's first slice must serve `/v1/healthz` and `/v1/config`, with logs;
+  compile-only 501 stubs do not satisfy the first deployment milestone.
+- WP-0 owns working `workers/gateway/src/shared/*` runtime helpers (including errors, ids, time,
+  and context) before their first consumers land. WP-1 owns portable wire schemas/constants and
+  its explicitly listed pure helpers. Resolve any re-export placement against the glossary.
+- Complete ARC-01 before implementing affected Daily Five/Feed v2 schemas, player commands,
+  feed, or client behavior. Revise WP-11 and add WP-15 there; do not ship the obsolete stories/ticker
+  contract below. Foundation work is not blocked by this product delta.
+- WP-14 is a final operational walkthrough and README task under the current no-new-tests rule;
+  its historical smoke-script authoring instructions remain inactive unless Peter requests them.
+
+The technical corrections and remaining plan mismatches are recorded in the learning plan.
 
 **Repo root:** `/Users/peter/Projects/IOS Crosswords`. All paths below are relative to this root unless
 given absolute.
@@ -18,8 +48,8 @@ config file. Those are exclusive to WP-0 and WP-13.
 **Layering (ARCHITECTURE.md §1 DAG) drives the "Depends on" column:**
 `shared/events (WP-1/2)` → `{content, player} (WP-3/4)` → `identity (WP-5)` → `{solving, economy, social}
 (WP-6/7/8)` → `{collections, leaderboard} (WP-9/10)` → `{feed, notifications} (WP-11/12)` → `app (WP-13)`.
-WP-0 is the prerequisite for all (scaffold must exist and compile before any module code lands). WP-14 runs
-last.
+The minimal WP-0 scaffold is the prerequisite for its consumers. WP-13 wiring accompanies each
+feature slice; its final reconciliation and the WP-14 walkthrough run last.
 
 ---
 
@@ -330,7 +360,7 @@ required-change #3) to snapshot+finalize the DO's in-object ledger table waterma
 `0004_economy.sql` owned by WP-7; this WP writes the `extra()` statements targeting it by table name only,
 coordinate the exact INSERT column list against §5's `economy_ledger` DDL, which you may read but not
 create — WP-7 owns that migration file). `internal/projection.ts` registers the `player_state` /
-`player_solves` projection definitions consumed by the shared `Projections` DO. `migrations/0002_player.sql`
+`player_solves` projection definitions consumed by the shared `Projections` WorkerEntrypoint. `migrations/0002_player.sql`
 gets the exact DDL from §5 (`player_state`, `player_solves`, indexes `player_state_streak_reminder`,
 `player_state_plan`, `solves_by_puzzle_time`, `solves_by_user`, `solves_by_week`, `solves_user_day`,
 `solves_user_puzzle`). Write all test cases listed in ARCHITECTURE.md §8's `player` bullet list verbatim,
@@ -767,11 +797,13 @@ ARCHITECTURE.md §8's `notifications` bullet list verbatim: once-per-(user,day) 
 
 ## WP-13 — integration
 
-**Goal:** Wire every module into the Hono composition root: the static event handler table, module factory,
-route mounts, exported types, the architecture test, and the `/me/reconcile` route.
+**Goal:** Wire each implemented feature into the Hono composition root as it lands: the relevant
+event handlers, module factory, route mounts and exported types. Finish with a full reconciliation
+of the completed modules and `/me/reconcile`. Apply the current execution agreement above to
+historical test-authoring requirements in this section.
 
 **Creates/edits (exclusive):**
-- `workers/gateway/src/app/index.ts` (real: `export default { fetch, scheduled }`, exports `User`/`PuzzleStats`/`Projections` DO classes, `export type AppType`)
+- `workers/gateway/src/app/index.ts` (real: `export default { fetch, scheduled }`, exports `User`/`PuzzleStats` DO classes and the `Projections` WorkerEntrypoint, `export type AppType`)
 - `workers/gateway/src/app/app.ts` (real: `createFactory<AppEnv>({defaultAppOptions:{strict:false}}).createApp()`, middleware stack — `requestId → timing → logger → secureHeaders → bodyLimit(64KB)` — and `app.basePath("/v1").route("/feed", feed)...` mounting every module's `http.ts`)
 - `workers/gateway/src/app/wiring.ts` (real: the `DomainEvent = z.discriminatedUnion(...)` composed from every module's `contract.ts`, and the static `HandlerTable` mapping every event type from glossary §4 to its critical/background subscribers, in registration order)
 - `workers/gateway/src/app/modules.ts` (real: `createModules(ctx)` binding every module's `index.ts` API to the request context; `resolveModules(env, ctx)` for the extraction seam described in ARCHITECTURE.md §1)
@@ -791,7 +823,9 @@ check). Glossary §1 `app` row, §4 full event table (producer/critical/backgrou
 into `wiring.ts`), §5 all 46 endpoints (route mount table), §6 all error codes (verify `DOMAIN_STATUS`
 mapping from `packages/shared` covers every one).
 
-**Depends on:** WP-0 through WP-12 (all of them — this is the final assembly step before WP-14).
+**Depends on:** For each feature slice, its minimal scaffold, implemented contracts and modules.
+Only the final all-module reconciliation waits on WP-0 through WP-12 and the ARC-01 additions
+(including WP-15 once specified). Early route and export wiring must not wait for final assembly.
 
 **Acceptance:**
 ```
