@@ -404,3 +404,4 @@ Five focused gap documents were synthesized into this document on 2026-09-02:
 ## Related research outside the backend report
 
 - [Metrics for Crosscut as an ad-supported game](ad-app-metrics.md) — 52 metrics with the decision each changes, its scope and window, and its home (AdMob, analytics, or the console); a 13-metric first-version list; pitfalls.
+- [Tracking retention in Crosscut](retention-tracking.md) — day rules and definitions to fix first, the retention curve set, event instrumentation, what Duolingo, Snapchat and others do, five console placements, pitfalls.
