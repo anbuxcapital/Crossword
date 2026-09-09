@@ -12,7 +12,7 @@ Four choices have to be made before an event is written, because each one change
 
 | Question | Options | Recommendation for Crosscut | Why |
 |---|---|---|---|
-| What counts as "active" | App open · game started (`solve_started`) · Daily challenge finished | Two ladders, reported side by side: **active = app open** (the denominator for ads and sessions) and **engaged = at least one solve that day** (the denominator for streaks, cohorts and churn) | The streak, the leaderboard and `player_solves` all key off a finished solve. A retention curve built on app opens and a streak built on solves will diverge, and support will be asked to explain the gap |
+| What counts as "active" | App open · game started (`solve_started`) · Daily game finished | Two ladders, reported side by side: **active = app open** (the denominator for ads and sessions) and **engaged = at least one solve that day** (the denominator for streaks, cohorts and churn) | The streak, the leaderboard and `player_solves` all key off a finished solve. A retention curve built on app opens and a streak built on solves will diverge, and support will be asked to explain the gap |
 | Calendar day or rolling 24h | Calendar day in a fixed zone · calendar day in the player's zone · rolling 24h from first use | **Calendar day in the player's IANA zone**, i.e. `dayKey(ms, tz)` exactly as `applyStreak` uses it | The streak is already defined this way (`ARCHITECTURE.md` §Streak algorithm); a second day rule for analytics guarantees two answers to "did I play yesterday" |
 | Which retention shape | Classic N-day · unbounded · bracket | **Classic N-day** for D1/D7/D30 reported externally, **unbounded** for the churn read, **bracket** (D0, D1–3, D4–7, D8–30) for the weekly review | The three are different questions and Amplitude names all three; publishing one and reasoning with another is the most common way a retention argument goes wrong |
 | Cohort by what | `first_open` · first solve · onboarding complete | **Cohort by first solve day** as the primary, `first_open` day kept as a secondary for store-report reconciliation | A player who installs and never finishes a game has no streak, no `player_solves` row and no day rule; Apple already excludes never-opened installs from both sides of its ratio |
@@ -45,12 +45,12 @@ The platforms Peter will be asked about in a board deck use classic N-day on an 
 | Weekly cohort curve | Share of a first-solve week cohort with ≥1 solve in each later week | ISO `week_key` (already on `player_solves`) | The honest long-run shape; daily curves are too noisy per language |
 | Resurrection rate | Players with a solve this week, no solve last week, and a first solve older than one week ÷ all players active this week | `week_key` | Amplitude's "resurrected"; the payoff line for reminders and re-engagement |
 | Streak-survival curve | Share of players who reached a streak of 1 who are still on an unbroken streak at day N | `last_solved_day` vs `day_key` | The single most Crosscut-specific curve; see the survivorship pitfall |
-| Daily challenge completion | Players finishing ≥1 of the day's pair ÷ players who opened the day's Daily challenge | `day_key` | Leading indicator: it moves days before D7 does |
+| Daily game completion | Players finishing ≥1 of the day's pair ÷ players who opened the day's Daily game | `day_key` | Leading indicator: it moves days before D7 does |
 | Time to second session | Median hours from first solve to second app open | Rolling hours, deliberately | The only place a rolling window is right — it is a latency, not a calendar fact |
 | Notification-driven return | Sessions opened from a push ÷ reminders sent, and the share that end in a solve | `day_key` of the reminder | Pairs with the reminder cron's dedupe row |
 | Churn | No solve for 14 consecutive local days; "deep churn" at 30 | `day_key` | Choose one and never change it; it is the denominator of resurrection |
 
-Two notes. Daily challenge completion is a leading indicator because it is measurable on the day, while D7 for the same cohort arrives a week later — a bad Daily challenge shows up in completion immediately and in D7 much later. And the streak-survival curve should be plotted from a *starting* cohort (everyone who reached streak = 1 in a given week), never from today's streak distribution.
+Two notes. Daily game completion is a leading indicator because it is measurable on the day, while D7 for the same cohort arrives a week later — a bad Daily game shows up in completion immediately and in D7 much later. And the streak-survival curve should be plotted from a *starting* cohort (everyone who reached streak = 1 in a given week), never from today's streak distribution.
 
 ## In-app instrumentation
 
@@ -59,7 +59,7 @@ Firebase already gives `first_open`, `session_start` and `user_engagement` witho
 | Event | When | Properties |
 |---|---|---|
 | `app_open_attributed` | First foreground of a local day | `open_source` (`push` · `organic` · `deeplink` · `store`), `reminder_day_key`, `hours_since_last_solve`, `streak_count` |
-| `drop_opened` | Daily challenge module enters view on the feed | `day_key`, `lang`, `crossword_id`, `daily_five_id`, `both_done` |
+| `drop_opened` | Daily game module enters view on the feed | `day_key`, `lang`, `crossword_id`, `daily_five_id`, `both_done` |
 | `solve_started` / `solve_finished` | Existing | add `kind` (`crossword` · `daily_five`), `lang`, `day_key`, `is_daily_challenge` |
 | `streak_extended` | On a finish that advances the streak | `streak_count`, `previous_count`, `kind`, `lang` |
 | `streak_broken` | First read after `lastSolvedDay` falls out of {today, yesterday} | `previous_count`, `days_missed` |
@@ -132,7 +132,7 @@ Per the console guidelines, a number belongs in the console only when it sits ne
 | # | Console location | Number, with scope and window | Decision it changes |
 |---|---|---|---|
 | 1 | Players → Support actions, beside **S3 Restore streak** | Streak restores granted · global · 28 days, split by operator, with the share of restored players who solved again within 7 days | Whether restores are working as a support action or being used as a substitute for a player-facing streak protection |
-| 2 | Daily challenge → Day inspector, beside the **published day** | Daily challenge completion · that day · per language · shown against the same weekday in the prior 4 weeks | Whether that day's crossword or Daily Five was mis-scheduled or too hard, and whether to publish a correction |
+| 2 | Daily game → Day inspector, beside the **published day** | Daily game completion · that day · per language · shown against the same weekday in the prior 4 weeks | Whether that day's crossword or Wordle was mis-scheduled or too hard, and whether to publish a correction |
 | 3 | Operations → Notifications card, beside the **reminder rule** | Notification opt-in share (`prefs.notifications` = enabled ÷ all onboarded) · per platform · 28 days, next to reminders written and deduped by the hourly cron | Whether to move the pre-prompt, and whether the reminder rule fires for a population large enough to matter |
 | 4 | Ads → Placement rule editor, beside the **first-session grace** control | Read-only D1 and D7 for first-solve cohorts before and after the rule's effective time, day-of-week matched · per platform | Whether to keep or revert an ad-rule change — the guardrail the guidelines demand next to a high-impact control |
 | 5 | Players → Player record header | Days since last solve, current streak, longest streak, `last_solved_day` and the player's local day boundary | Whether this player is at risk, already churned, or in a timezone that explains their complaint — before any support action is taken |
@@ -165,12 +165,12 @@ Everything else — the curve set, weekly cohorts, resurrection, time to second 
 | 4 | Ship the D1/D7/D30 classic query cohorted on `first_solved_day` | The SQL above, against `player_solves` |
 | 5 | Ship the weekly cohort and resurrection queries | `player_solves.week_key`, already present |
 | 6 | Ship the streak-survival curve | `player_solves.day_key` plus `player_state.streak`, `last_solved_day` |
-| 7 | Instrument `drop_opened` and finish `solve_started` / `solve_finished` with `kind`, `lang`, `is_daily_challenge` | Client events; denominator for Daily challenge completion |
+| 7 | Instrument `drop_opened` and finish `solve_started` / `solve_finished` with `kind`, `lang`, `is_daily_challenge` | Client events; denominator for Daily game completion |
 | 8 | Instrument `streak_extended`, `streak_broken`, `streak_at_risk_card_shown`, `streak_at_risk_card_tapped` | Client events off the existing feed card |
 | 9 | Instrument `notification_prompt_shown` and `notification_permission_result` at the pre-prompt | Client events; the numerator and denominator of placement 3 |
 | 10 | Set the `return_trigger` session property and `app_open_attributed` | Client; resolve once per local day in the documented order |
 | 11 | Set the user properties, `streak_bucket` as a bucket | Client, on session start and after any finish |
-| 12 | Build console placements 1, 2 and 5 (restore volume, Daily challenge completion, player-record risk state) | Items 2, 4 and 7; placements 3 and 4 wait for notifications and ad rules to exist |
+| 12 | Build console placements 1, 2 and 5 (restore volume, Daily game completion, player-record risk state) | Items 2, 4 and 7; placements 3 and 4 wait for notifications and ad rules to exist |
 
 Items 1–6 are server-side and unblock the console. Items 7–11 are the client work. Item 12 is the only console build in the first pass.
 
